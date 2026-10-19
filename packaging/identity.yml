@@ -1,0 +1,17 @@
+schema: open-cli-identity/v1
+repo: slack-app-web
+module: github.com/open-cli-collective/slack-app-web
+binary: slaw
+service_name: slack-app-web
+goreleaser_config: .goreleaser.yml
+tag:
+  prefix: v
+  version_scheme: major_minor_run_patch
+archives:
+  name_template: "slaw_v{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+packages:
+  homebrew:
+    canonical_cask: slaw
+  linux: { package_name: slaw }
+
+version_file: version.txt

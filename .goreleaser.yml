@@ -1,0 +1,111 @@
+version: 2
+
+project_name: slack-app-web
+
+before:
+  hooks:
+    # a mutating tidy must fail the release, not build from a dirty tree
+    - sh -c "go mod tidy && git diff --exit-code go.mod go.sum"
+
+# slaw stores no credentials, so no build needs cgo for a keyring backend.
+builds:
+  - id: slaw
+    main: ./cmd/slaw
+    binary: slaw
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/open-cli-collective/slack-app-web/internal/version.Version={{.Version}}
+      - -X github.com/open-cli-collective/slack-app-web/internal/version.Commit={{.Commit}}
+      - -X github.com/open-cli-collective/slack-app-web/internal/version.Date={{.Date}}
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "slaw_v{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - LICENSE
+      - README.md
+
+nfpms:
+  - id: slaw
+    ids:
+      - slaw
+    package_name: slaw
+    vendor: Open CLI Collective
+    homepage: https://github.com/open-cli-collective/slack-app-web
+    maintainer: Open CLI Collective <https://github.com/open-cli-collective>
+    description: Slack app steps that have no API, done in a headless browser
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - archlinux
+    # Keep tar entry timestamps aligned with pacman integrity metadata.
+    mtime: "{{ .CommitDate }}"
+    bindir: /usr/bin
+    contents:
+      - src: LICENSE
+        dst: /usr/share/licenses/slaw/LICENSE
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# skip_upload: the reusable release workflow commits the rendered cask to
+# the tap.
+homebrew_casks:
+  - name: slaw
+    binaries: [slaw]
+    skip_upload: true
+    repository:
+      owner: open-cli-collective
+      name: homebrew-tap
+    homepage: https://github.com/open-cli-collective/slack-app-web
+    description: "Slack app steps that have no API, done in a headless browser"
+    hooks:
+      post:
+        install: |
+          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/slaw"]
+    caveats: |
+      Download the browser slaw drives, then sign in once:
+        slaw browser install
+        slaw login
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: "^.*feat.*:.*$"
+      order: 0
+    - title: Bug Fixes
+      regexp: "^.*fix.*:.*$"
+      order: 1
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+release:
+  github:
+    owner: open-cli-collective
+    name: slack-app-web
+  # idempotent re-runs overwrite the same assets
+  replace_existing_artifacts: true
