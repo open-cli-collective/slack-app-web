@@ -16,11 +16,18 @@ import (
 	"runtime"
 )
 
-// ErrNoSink is returned when neither --to-file nor --to-command is set.
-var ErrNoSink = errors.New("name where the secret goes with --to-file <path> or --to-command <command>; it is never printed")
-
-// ErrTwoSinks is returned when both --to-file and --to-command are set.
-var ErrTwoSinks = errors.New("--to-file and --to-command are exclusive; pass one")
+// The ways a destination can be wrong. Each is the caller's to fix; the
+// command layer names the flags that fix it.
+var (
+	// ErrNoSink: neither a file nor a command was named.
+	ErrNoSink = errors.New("no destination for the secret; it is never printed")
+	// ErrTwoSinks: both a file and a command were named.
+	ErrTwoSinks = errors.New("two destinations for the secret; name one")
+	// ErrOverwriteWithoutFile: overwrite was asked for with no file.
+	ErrOverwriteWithoutFile = errors.New("overwrite applies only to a file destination")
+	// ErrExists: the file exists and overwrite was not asked for.
+	ErrExists = errors.New("file exists")
+)
 
 // Sink is the destination of a secret.
 type Sink struct {
@@ -41,11 +48,11 @@ func (s Sink) Check() error {
 	case s.File != "" && s.Command != "":
 		return ErrTwoSinks
 	case s.Overwrite && s.File == "":
-		return errors.New("--overwrite applies only to --to-file")
+		return ErrOverwriteWithoutFile
 	}
 	if s.File != "" && !s.Overwrite {
 		if _, err := os.Lstat(s.File); err == nil {
-			return fmt.Errorf("%s exists; pass --overwrite to replace it", s.File)
+			return fmt.Errorf("%s: %w", s.File, ErrExists)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -97,7 +104,7 @@ func writeFile(path string, secret []byte, overwrite bool) (err error) {
 	}
 	if err := os.Link(tmp.Name(), path); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("%s exists; pass --overwrite to replace it", path)
+			return fmt.Errorf("%s: %w", path, ErrExists)
 		}
 		return err
 	}
@@ -116,9 +123,9 @@ func runCommand(command string, secret []byte, stdout, stderr io.Writer) error {
 	if err := cmd.Run(); err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
-			return fmt.Errorf("--to-command exited with status %d", exit.ExitCode())
+			return fmt.Errorf("the destination command exited with status %d", exit.ExitCode())
 		}
-		return fmt.Errorf("--to-command could not run: %w", err)
+		return fmt.Errorf("the destination command could not run: %w", err)
 	}
 	return nil
 }

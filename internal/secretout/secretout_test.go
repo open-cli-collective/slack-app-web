@@ -16,14 +16,11 @@ func TestCheckNeedsExactlyOneSink(t *testing.T) {
 	if err := (Sink{}).Check(); !errors.Is(err, ErrNoSink) {
 		t.Fatalf("no sink: err = %v", err)
 	}
-	if !strings.Contains(ErrNoSink.Error(), "--to-file") || !strings.Contains(ErrNoSink.Error(), "--to-command") {
-		t.Fatalf("ErrNoSink does not name both flags: %q", ErrNoSink)
-	}
 	if err := (Sink{File: "f", Command: "c"}).Check(); !errors.Is(err, ErrTwoSinks) {
 		t.Fatalf("two sinks: err = %v", err)
 	}
-	if err := (Sink{Command: "c", Overwrite: true}).Check(); err == nil {
-		t.Fatal("--overwrite without --to-file was accepted")
+	if err := (Sink{Command: "c", Overwrite: true}).Check(); !errors.Is(err, ErrOverwriteWithoutFile) {
+		t.Fatalf("overwrite without a file: err = %v", err)
 	}
 }
 
@@ -55,11 +52,11 @@ func TestToFileRefusesToReplaceAFileUnlessOverwrite(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := (Sink{File: path}).Check(); err == nil || !strings.Contains(err.Error(), "--overwrite") {
-		t.Fatalf("Check err = %v, want a refusal naming --overwrite", err)
+	if err := (Sink{File: path}).Check(); !errors.Is(err, ErrExists) {
+		t.Fatalf("Check err = %v, want ErrExists", err)
 	}
-	if err := writeFile(path, []byte(secret), false); err == nil {
-		t.Fatal("writeFile replaced a file that appeared after Check")
+	if err := writeFile(path, []byte(secret), false); !errors.Is(err, ErrExists) {
+		t.Fatalf("writeFile over a file that appeared after Check: err = %v, want ErrExists", err)
 	}
 	if got, _ := os.ReadFile(path); string(got) != "old" {
 		t.Fatalf("file now holds %q", got)
