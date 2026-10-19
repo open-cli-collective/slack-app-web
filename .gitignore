@@ -1,0 +1,19 @@
+# Build artifacts
+/bin/
+/dist/
+*.test
+*.out
+coverage.html
+
+# Go
+vendor/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Secrets, never commit
+.env
+.env.*
