@@ -34,13 +34,13 @@ slaw apps install A0123456789            # leaves an installed app alone
 slaw apps install A0123456789 --reinstall
 slaw icons update A0123456789 --file icon.png
 
-# Secrets go to a pipe or a file, never a terminal:
-slaw config-tokens create | <command that stores the pair>
-slaw config-tokens get > pair.json
-slaw bot-tokens get A0123456789 | <command that stores the token>
+# Secrets go only where you name them, never to slaw's output:
+slaw config-tokens create --to-command '<command that reads the pair on stdin>'
+slaw config-tokens get --to-file ./pair.json
+slaw bot-tokens get A0123456789 --to-command '<command that reads the token on stdin>'
 ```
 
-`config-tokens create` and `get` write one JSON object with the field names
+`config-tokens create` and `get` deliver one JSON object with the field names
 of Slack's `tooling.tokens.rotate`:
 
 ```json
@@ -54,14 +54,24 @@ configuration token per workspace: `create` refuses when one exists, and
 
 ## Keeping tokens out of logs
 
-`bot-tokens get` and `config-tokens create|get` refuse to write to a
-terminal, write the token with no trailing newline, and never log,
-screenshot or save a page. Error messages are cut to one line and anything
-shaped like a Slack token is redacted.
+`bot-tokens get` and `config-tokens create|get` never write a token to
+slaw's own stdout or stderr, whether that is a terminal, an agent
+transcript or a CI log. Each takes exactly one destination:
 
-An agent or CI runner captures stdout through a pipe, so the terminal guard
-does not apply there: always send the output to its destination in the same
-command (`| store` or `> file`), never let it reach the runner's own output.
+- `--to-file <path>` creates the file with mode 0600, writing it in full
+  before it appears. An existing file is refused unless `--overwrite` is set.
+- `--to-command <command>` runs the command through the shell with the token
+  on its stdin. The command's own output passes through; a nonzero exit fails
+  the run with its status, never the token.
+
+With neither, the command fails before opening the browser. Tokens are
+written with no trailing newline, and slaw never logs, screenshots or saves
+a page. Error messages are cut to one line and anything shaped like a Slack
+token is redacted.
+
+Do not put a token on a command line inside `--to-command` (for example
+`"$(cat)"` as an argument): process listings show arguments. Use a command
+that reads stdin.
 
 ## Browser profiles
 

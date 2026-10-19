@@ -14,31 +14,38 @@ func NewCmd(opts *cmdutil.Options) *cobra.Command {
 		Use:   "bot-tokens",
 		Short: "Read an installed app's bot token",
 	}
-	cmd.AddCommand(&cobra.Command{
+	var sink secretout.Sink
+	get := &cobra.Command{
 		Use:   "get <app-id>",
-		Short: "Write an app's bot token to a pipe",
+		Short: "Deliver an app's bot token to a file or a command",
 		Long: `Reads the app's Bot User OAuth Token from its OAuth & Permissions page and
-writes it to stdout with no trailing newline. stdout must be a pipe or a file:
-the command refuses to print a token to a terminal.`,
-		Example: `  slaw bot-tokens get A0123456789 | op item create --category "API Credential" --title "My bot" credential[password]=-
-  slaw bot-tokens get A0123456789 > token.txt`,
+delivers it, with no trailing newline, to exactly one destination:
+
+  --to-file <path>      a new file with mode 0600 (--overwrite replaces one)
+  --to-command <cmd>    a shell command that reads the token on stdin
+
+The token is never written to slaw's own output.`,
+		Example: `  slaw bot-tokens get A0123456789 --to-command 'aws secretsmanager put-secret-value --secret-id <id> --secret-string file:///dev/stdin'
+  slaw bot-tokens get A0123456789 --to-file ./bot-token`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			appID, err := cmdutil.AppID(args[0])
 			if err != nil {
 				return err
 			}
-			if opts.StdoutIsTerminal() {
-				return secretout.ErrTerminal
+			if err := cmdutil.CheckSink(sink); err != nil {
+				return err
 			}
 			return opts.WithBrowser(false, func(b cmdutil.Browser) error {
 				token, err := b.BotToken(appID)
 				if err != nil {
 					return err
 				}
-				return secretout.Write(opts.Stdout, opts.StdoutIsTerminal(), []byte(token))
+				return opts.DeliverSecret(sink, []byte(token))
 			})
 		},
-	})
+	}
+	cmdutil.AddSinkFlags(get, &sink)
+	cmd.AddCommand(get)
 	return cmd
 }

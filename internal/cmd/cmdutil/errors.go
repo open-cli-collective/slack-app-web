@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/open-cli-collective/slack-app-web/internal/exitcode"
-	"github.com/open-cli-collective/slack-app-web/internal/secretout"
 	"github.com/open-cli-collective/slack-app-web/internal/slackweb"
 )
 
@@ -26,8 +25,6 @@ func Classify(err error) (code int, hint string) {
 		return exitcode.Usage, "`slaw config-tokens get` reads it; `slaw config-tokens create --replace` deletes it and generates a new one"
 	case errors.Is(err, slackweb.ErrPendingApproval):
 		return exitcode.Generic, ""
-	case errors.Is(err, secretout.ErrTerminal):
-		return exitcode.Usage, ""
 	case errors.As(err, &upstream):
 		return exitcode.Upstream, ""
 	}

@@ -23,8 +23,9 @@ git config core.hooksPath scripts/hooks          # reject AI-tool mentions in co
   replace with a fake.
 - `internal/slackweb/`: the browser flows (Playwright through playwright-go)
   and the pure parsing they rely on (`parse.go`).
-- `internal/secretout/`: the only path a secret takes to stdout, and the
-  error redaction.
+- `internal/secretout/`: the only path a secret takes out of slaw (a 0600
+  file or a command's stdin, never slaw's own output), and the error
+  redaction.
 - `internal/output/`: pipe-delimited tables.
 - `internal/exitcode/`: errors that carry the exit code.
 
@@ -33,8 +34,10 @@ git config core.hooksPath scripts/hooks          # reject AI-tool mentions in co
 - **Browser only for what has no API.** Manifest changes, scopes, events and
   settings belong to Slack's `apps.manifest.*` API, used through other tools;
   this CLI adds a command only for a step Slack offers in the browser alone.
-- **Secrets never reach a log.** A token leaves only through
-  `secretout.Write`. Do not print page text, take screenshots, or wrap a
+- **Secrets never reach a log.** A token leaves only through a
+  `secretout.Sink` the caller named (`--to-file` or `--to-command`), never
+  through stdout or stderr, because a terminal check cannot tell an agent
+  transcript or a CI log from a pipe. Do not print page text, take screenshots, or wrap a
   browser error without `secretout.ErrorText` in the path to stderr. Token
   pages (OAuth & Permissions, install, Your Apps' token table) are never
   captured in any form.
