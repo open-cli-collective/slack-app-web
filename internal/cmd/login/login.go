@@ -27,18 +27,19 @@ signed in.`,
   slaw --profile work login --wait 15m`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			b, err := opts.Browser(true)
+			ws, err := cmdutil.Workspace(workspace)
 			if err != nil {
 				return err
 			}
-			defer b.Close()
-			fmt.Fprintln(opts.Stderr, "A browser window is open at Slack's sign-in page. Sign in there; this command finishes when you are signed in.")
-			if err := b.Login(workspace, wait); err != nil {
-				return err
-			}
-			dir, _ := opts.ResolvedProfileDir()
-			fmt.Fprintf(opts.Stdout, "Signed in. Profile: %s\n", dir)
-			return nil
+			return opts.WithBrowser(true, func(b cmdutil.Browser) error {
+				fmt.Fprintln(opts.Stderr, "A browser window is open at Slack's sign-in page. Sign in there; this command finishes when you are signed in.")
+				if err := b.Login(ws, wait); err != nil {
+					return err
+				}
+				dir, _ := opts.ResolvedProfileDir()
+				fmt.Fprintf(opts.Stdout, "Signed in. Profile: %s\n", dir)
+				return nil
+			})
 		},
 	}
 	cmd.Flags().StringVarP(&workspace, "workspace", "w", "", "Workspace subdomain to sign in to (acme for acme.slack.com)")

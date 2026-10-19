@@ -80,15 +80,16 @@ func emit(opts *cmdutil.Options, read func(cmdutil.Browser) (slackweb.ConfigToke
 	if opts.StdoutIsTerminal() {
 		return secretout.ErrTerminal
 	}
-	b, err := opts.Browser(false)
-	if err != nil {
-		return err
-	}
-	defer b.Close()
-	pair, err := read(b)
-	if err != nil {
-		return err
-	}
+	return opts.WithBrowser(false, func(b cmdutil.Browser) error {
+		pair, err := read(b)
+		if err != nil {
+			return err
+		}
+		return write(opts, pair)
+	})
+}
+
+func write(opts *cmdutil.Options, pair slackweb.ConfigToken) error {
 	raw, err := json.Marshal(pair) //nolint:gosec // emitting the pair is this command's purpose; secretout guards where it goes
 	if err != nil {
 		return err

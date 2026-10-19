@@ -2,7 +2,6 @@
 package icons
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/open-cli-collective/slack-app-web/internal/cmd/cmdutil"
-	"github.com/open-cli-collective/slack-app-web/internal/exitcode"
 )
 
 // NewCmd returns the icons command group.
@@ -36,16 +34,13 @@ func NewCmd(opts *cmdutil.Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			b, err := opts.Browser(false)
-			if err != nil {
-				return err
-			}
-			defer b.Close()
-			if err := b.UpdateIcon(appID, png); err != nil {
-				return err
-			}
-			fmt.Fprintf(opts.Stdout, "Updated the icon of %s\n", appID)
-			return nil
+			return opts.WithBrowser(false, func(b cmdutil.Browser) error {
+				if err := b.UpdateIcon(appID, png); err != nil {
+					return err
+				}
+				fmt.Fprintf(opts.Stdout, "Updated the icon of %s\n", appID)
+				return nil
+			})
 		},
 	}
 	update.Flags().StringVarP(&file, "file", "F", "", "PNG file to upload (required)")
@@ -57,7 +52,7 @@ var pngSignature = []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
 
 func checkPNG(path string) (string, error) {
 	if path == "" {
-		return "", exitcode.New(exitcode.Usage, errors.New("--file is required"))
+		return "", cmdutil.Usage("--file is required")
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -65,12 +60,12 @@ func checkPNG(path string) (string, error) {
 	}
 	f, err := os.Open(abs)
 	if err != nil {
-		return "", exitcode.New(exitcode.Usage, err)
+		return "", cmdutil.Usage("%w", err)
 	}
 	defer f.Close()
 	head := make([]byte, len(pngSignature))
 	if _, err := f.Read(head); err != nil || !strings.HasPrefix(string(head), string(pngSignature)) {
-		return "", exitcode.New(exitcode.Usage, fmt.Errorf("%s is not a PNG", path))
+		return "", cmdutil.Usage("%s is not a PNG", path)
 	}
 	return abs, nil
 }

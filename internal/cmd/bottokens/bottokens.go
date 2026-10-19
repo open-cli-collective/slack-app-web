@@ -31,16 +31,13 @@ the command refuses to print a token to a terminal.`,
 			if opts.StdoutIsTerminal() {
 				return secretout.ErrTerminal
 			}
-			b, err := opts.Browser(false)
-			if err != nil {
-				return err
-			}
-			defer b.Close()
-			token, err := b.BotToken(appID)
-			if err != nil {
-				return err
-			}
-			return secretout.Write(opts.Stdout, opts.StdoutIsTerminal(), []byte(token))
+			return opts.WithBrowser(false, func(b cmdutil.Browser) error {
+				token, err := b.BotToken(appID)
+				if err != nil {
+					return err
+				}
+				return secretout.Write(opts.Stdout, opts.StdoutIsTerminal(), []byte(token))
+			})
 		},
 	})
 	return cmd

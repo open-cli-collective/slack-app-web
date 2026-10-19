@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/mxschmitt/playwright-go"
-
-	"github.com/open-cli-collective/slack-app-web/internal/exitcode"
 )
 
 // Login opens the Slack sign-in page and waits, up to wait, for a person to
@@ -36,7 +34,7 @@ func (s *Session) Login(workspace string, wait time.Duration) error {
 		}
 		time.Sleep(2 * time.Second)
 	}
-	return exitcode.New(exitcode.Auth, fmt.Errorf("no sign-in within %s", wait))
+	return fmt.Errorf("%w: no sign-in within %s", ErrSignedOut, wait)
 }
 
 // ListApps returns the apps on the Your Apps page.
@@ -112,7 +110,7 @@ func (s *Session) loadInstallPage(appID string) error {
 		Or(s.page.GetByRole("button", playwright.PageGetByRoleOptions{Name: requestButton})).
 		Or(s.page.GetByRole("link", playwright.PageGetByRoleOptions{Name: requestButton}))
 	if !s.visible(ready, s.timeout) {
-		return exitcode.New(exitcode.NotFound, fmt.Errorf("app %s not found, or this account cannot manage it", appID))
+		return fmt.Errorf("%s: %w", appID, ErrAppNotFound)
 	}
 	return nil
 }
@@ -149,7 +147,7 @@ func (s *Session) Install(appID string, reinstall bool) (InstallState, bool, err
 		}
 		state.PendingApproval = true
 	default:
-		return state, false, errors.New("no install button on the app's install page")
+		return state, false, upstream("no install button on the app's install page")
 	}
 	allow := s.page.GetByRole("button", playwright.PageGetByRoleOptions{Name: allowButton})
 	if s.visible(allow, s.timeout) {
@@ -157,7 +155,7 @@ func (s *Session) Install(appID string, reinstall bool) (InstallState, bool, err
 			return state, false, err
 		}
 		if err := s.page.WaitForURL(regexp.MustCompile(`api\.slack\.com/apps/`), playwright.PageWaitForURLOptions{Timeout: &s.timeout}); err != nil {
-			return state, false, exitcode.New(exitcode.Upstream, errors.New("the install did not return to the app page"))
+			return state, false, upstream("the install did not return to the app page")
 		}
 	}
 	if err := s.loadInstallPage(appID); err != nil {
@@ -178,7 +176,7 @@ func (s *Session) BotToken(appID string) (string, error) {
 	}
 	label := s.page.GetByText(regexp.MustCompile(`(?i)bot user oauth token`))
 	if !s.visible(label, s.timeout) {
-		return "", exitcode.New(exitcode.NotFound, fmt.Errorf("app %s has no bot token: it has no bot user or is not installed", appID))
+		return "", fmt.Errorf("%s: %w", appID, ErrNoBotToken)
 	}
 	v, err := s.page.Locator("input").EvaluateAll(`inputs => inputs.map(i => i.value)`)
 	if err != nil {
@@ -197,6 +195,8 @@ func (s *Session) BotToken(appID string) (string, error) {
 	}
 	for i := 0; i < n; i++ {
 		if err := copyButtons.Nth(i).Click(); err != nil {
+			// The page has several Copy buttons; one that cannot be
+			// clicked just moves the search to the next.
 			continue
 		}
 		copied, err := s.copied()
@@ -220,10 +220,6 @@ func toStrings(v any) []string {
 	}
 	return out
 }
-
-// ErrConfigTokenExists means the workspace already has a configuration
-// token; Slack allows one per workspace.
-var ErrConfigTokenExists = exitcode.New(exitcode.Usage, errors.New("the workspace already has an app configuration token: `slaw config-tokens get` reads it, and `slaw config-tokens create --replace` deletes it and generates a new one"))
 
 // CreateConfigToken generates an app configuration token for the workspace
 // named team (the name the Your Apps page shows), or for the only workspace
@@ -274,7 +270,7 @@ func (s *Session) GetConfigToken(team string, now time.Time) (ConfigToken, error
 	}
 	row, ok := s.configTokenRow(team, 5000)
 	if !ok {
-		return ConfigToken{}, exitcode.New(exitcode.NotFound, errors.New("the workspace has no app configuration token: run `slaw config-tokens create`"))
+		return ConfigToken{}, ErrNoConfigToken
 	}
 	return s.readConfigToken(row, now)
 }
@@ -341,7 +337,7 @@ func (s *Session) chooseWorkspace(dialog playwright.Locator, team string) error 
 	}
 	option := s.page.GetByRole("option", playwright.PageGetByRoleOptions{Name: team})
 	if !s.visible(option, s.timeout) {
-		return exitcode.New(exitcode.NotFound, fmt.Errorf("workspace %q is not offered for a configuration token", team))
+		return fmt.Errorf("%q: %w", team, ErrWorkspaceNotOffered)
 	}
 	return option.First().Click()
 }
@@ -379,7 +375,7 @@ func (s *Session) UpdateIcon(appID, png string) error {
 	}
 	input := s.page.Locator(`input[type="file"]`)
 	if err := input.First().WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateAttached, Timeout: &s.timeout}); err != nil {
-		return exitcode.New(exitcode.NotFound, fmt.Errorf("app %s not found, or its page has no icon upload", appID))
+		return fmt.Errorf("%s: %w", appID, ErrAppNotFound)
 	}
 	before := s.avatar()
 	if err := input.First().SetInputFiles(png); err != nil {
@@ -393,12 +389,14 @@ func (s *Session) UpdateIcon(appID, png string) error {
 		}
 		if ok, _ := confirm.First().IsVisible(); ok {
 			if enabled, _ := confirm.First().IsEnabled(); enabled {
+				// A failed click is retried on the next pass; the avatar
+				// changing is what decides success.
 				_ = confirm.First().Click()
 			}
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	return exitcode.New(exitcode.Upstream, fmt.Errorf("the icon of %s did not change after the upload", appID))
+	return upstream("the icon of %s did not change after the upload", appID)
 }
 
 // avatar is the URL of the app icon the settings page shows.

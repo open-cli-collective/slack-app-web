@@ -44,6 +44,8 @@ func (f *fakeBrowser) Install(_ string, reinstall bool) (slackweb.InstallState, 
 
 func run(t *testing.T, fake *fakeBrowser, terminal bool, args ...string) (string, error) {
 	t.Helper()
+	t.Setenv("SLAW_PROFILE", "")
+	t.Setenv("SLAW_PROFILE_DIR", "")
 	opened := 0
 	fake.opened = &opened
 	var out, errOut bytes.Buffer
@@ -127,14 +129,14 @@ func TestInstallLeavesAnInstalledAppAlone(t *testing.T) {
 func TestInstallPendingApprovalFails(t *testing.T) {
 	fake := &fakeBrowser{state: slackweb.InstallState{PendingApproval: true}, acted: true}
 	_, err := run(t, fake, true, "apps", "install", "A0EXAMPLE01")
-	if err == nil || !strings.Contains(err.Error(), "admin must approve") {
+	if !errors.Is(err, slackweb.ErrPendingApproval) {
 		t.Fatalf("err %v", err)
 	}
 }
 
 func TestMeExitsAuthWhenSignedOut(t *testing.T) {
 	out, err := run(t, &fakeBrowser{}, true, "me")
-	if exitcode.Of(err) != exitcode.Auth || !strings.Contains(out, "Signed in: no") {
+	if code, _ := cmdutil.Classify(err); code != exitcode.Auth || !strings.Contains(out, "Signed in: no") {
 		t.Fatalf("out %q err %v", out, err)
 	}
 }
@@ -144,5 +146,24 @@ func TestIconsRejectsANonPNG(t *testing.T) {
 	_, err := run(t, fake, true, "icons", "update", "A0EXAMPLE01", "--file", "root.go")
 	if exitcode.Of(err) != exitcode.Usage || *fake.opened != 0 {
 		t.Fatalf("err %v opened %d", err, *fake.opened)
+	}
+}
+
+func TestLoginRejectsAWorkspaceThatIsNotASubdomain(t *testing.T) {
+	for _, ws := range []string{"evil.example@acme", "acme/x", "acme#", "-acme"} {
+		fake := &fakeBrowser{}
+		_, err := run(t, fake, true, "login", "--workspace", ws)
+		if exitcode.Of(err) != exitcode.Usage || *fake.opened != 0 {
+			t.Errorf("%q: err %v opened %d", ws, err, *fake.opened)
+		}
+	}
+}
+
+func TestProfileDefaultsComeFromTheEnvironment(t *testing.T) {
+	t.Setenv("SLAW_PROFILE", "work")
+	t.Setenv("SLAW_PROFILE_DIR", "/tmp/example-profile")
+	opts := cmdutil.Default()
+	if opts.Profile != "work" || opts.ProfileDir != "/tmp/example-profile" {
+		t.Fatalf("profile %q dir %q", opts.Profile, opts.ProfileDir)
 	}
 }

@@ -15,14 +15,9 @@ import (
 	"time"
 
 	"github.com/mxschmitt/playwright-go"
-
-	"github.com/open-cli-collective/slack-app-web/internal/exitcode"
 )
 
 const appsURL = "https://api.slack.com/apps"
-
-// ErrSignedOut means the profile has no Slack session.
-var ErrSignedOut = exitcode.New(exitcode.Auth, errors.New("the browser profile is not signed in to Slack: run `slaw login`"))
 
 // Options configures a browser session.
 type Options struct {
@@ -65,14 +60,14 @@ func InstallBrowser(progress io.Writer) error {
 // Open starts Chromium on the profile.
 func Open(opts Options) (*Session, error) {
 	if opts.ProfileDir == "" {
-		return nil, exitcode.New(exitcode.Usage, errors.New("no browser profile directory"))
+		return nil, errors.New("no browser profile directory")
 	}
 	if err := os.MkdirAll(opts.ProfileDir, 0o700); err != nil {
 		return nil, err
 	}
 	pw, err := playwright.Run(&playwright.RunOptions{SkipInstallBrowsers: true, Verbose: false, Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil {
-		return nil, exitcode.New(exitcode.Generic, fmt.Errorf("the browser driver is not installed: run `slaw browser install` (%w)", err))
+		return nil, fmt.Errorf("%w: %w", ErrDriverMissing, err)
 	}
 	headless := !opts.Headed
 	ctx, err := pw.Chromium.LaunchPersistentContext(opts.ProfileDir, playwright.BrowserTypeLaunchPersistentContextOptions{
@@ -85,7 +80,7 @@ func Open(opts Options) (*Session, error) {
 			return nil, fmt.Errorf("the profile %s is in use by another browser; close it and retry", opts.ProfileDir)
 		}
 		if strings.Contains(err.Error(), "Executable doesn't exist") {
-			return nil, fmt.Errorf("chromium is not installed: run `slaw browser install`")
+			return nil, ErrDriverMissing
 		}
 		return nil, fmt.Errorf("could not start chromium: %w", err)
 	}
@@ -127,7 +122,7 @@ func (s *Session) Close() {
 
 func (s *Session) goto_(url string) error {
 	if _, err := s.page.Goto(url, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded, Timeout: &s.timeout}); err != nil {
-		return exitcode.New(exitcode.Upstream, fmt.Errorf("could not load %s: %w", url, err))
+		return upstream("could not load %s: %w", url, err)
 	}
 	return nil
 }

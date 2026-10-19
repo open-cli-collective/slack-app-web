@@ -3,7 +3,6 @@ package root
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -35,19 +34,9 @@ never to a terminal, and slaw never logs or screenshots a page.`,
 		Version:       fmt.Sprintf("%s (commit %s, built %s)", version.Version, version.Commit, version.Date),
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-			if opts.ProfileDir == "" {
-				opts.ProfileDir = os.Getenv("SLAW_PROFILE_DIR")
-			}
-			return nil
-		},
 	}
-	defaultProfile := "default"
-	if p := os.Getenv("SLAW_PROFILE"); p != "" {
-		defaultProfile = p
-	}
-	cmd.PersistentFlags().StringVar(&opts.Profile, "profile", defaultProfile, "Named browser profile, one per Slack account (env SLAW_PROFILE)")
-	cmd.PersistentFlags().StringVar(&opts.ProfileDir, "profile-dir", "", "Browser profile directory; overrides --profile (env SLAW_PROFILE_DIR)")
+	cmd.PersistentFlags().StringVar(&opts.Profile, "profile", opts.Profile, "Named browser profile, one per Slack account (env SLAW_PROFILE)")
+	cmd.PersistentFlags().StringVar(&opts.ProfileDir, "profile-dir", opts.ProfileDir, "Browser profile directory; overrides --profile (env SLAW_PROFILE_DIR)")
 	cmd.PersistentFlags().DurationVar(&opts.Timeout, "timeout", opts.Timeout, "How long to wait for each page element")
 	cmd.AddCommand(
 		login.NewCmd(opts),
@@ -75,7 +64,10 @@ func Execute() int {
 	cmd := NewCmd(opts)
 	if err := cmd.Execute(); err != nil {
 		fmt.Fprintln(opts.Stderr, "Error:", secretout.ErrorText(err))
-		code := exitcode.Of(err)
+		code, hint := cmdutil.Classify(err)
+		if hint != "" {
+			fmt.Fprintln(opts.Stderr, "Next:", hint)
+		}
 		if code == exitcode.Generic && isUsage(err) {
 			code = exitcode.Usage
 		}

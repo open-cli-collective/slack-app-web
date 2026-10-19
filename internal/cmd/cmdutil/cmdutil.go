@@ -40,10 +40,16 @@ type Options struct {
 	Open func(slackweb.Options) (Browser, error)
 }
 
-// Default returns options wired to the real process and browser.
+// Default returns options wired to the real process and browser, with the
+// profile defaults read from SLAW_PROFILE and SLAW_PROFILE_DIR.
 func Default() *Options {
+	profile := os.Getenv("SLAW_PROFILE")
+	if profile == "" {
+		profile = "default"
+	}
 	return &Options{
-		Profile:          "default",
+		Profile:          profile,
+		ProfileDir:       os.Getenv("SLAW_PROFILE_DIR"),
 		Timeout:          30 * time.Second,
 		Stdout:           os.Stdout,
 		Stderr:           os.Stderr,
@@ -68,11 +74,19 @@ func (o *Options) ResolvedProfileDir() (string, error) {
 	return slackweb.DefaultProfileDir(o.Profile)
 }
 
-// Browser opens a session on the resolved profile.
-func (o *Options) Browser(headed bool) (Browser, error) {
+// WithBrowser opens a session on the resolved profile, runs fn, and closes
+// the session however fn returns. A session left open keeps the profile
+// locked against every later run, so commands reach the browser only
+// through here.
+func (o *Options) WithBrowser(headed bool, fn func(Browser) error) error {
 	dir, err := o.ResolvedProfileDir()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return o.Open(slackweb.Options{ProfileDir: dir, Headed: headed, Timeout: o.Timeout})
+	b, err := o.Open(slackweb.Options{ProfileDir: dir, Headed: headed, Timeout: o.Timeout})
+	if err != nil {
+		return err
+	}
+	defer b.Close()
+	return fn(b)
 }

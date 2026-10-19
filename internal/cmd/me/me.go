@@ -22,24 +22,21 @@ func NewCmd(opts *cmdutil.Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			b, err := opts.Browser(false)
-			if err != nil {
-				return err
-			}
-			defer b.Close()
-			ok, err := b.SignedIn()
-			if err != nil {
-				return err
-			}
-			signed := "no"
-			if ok {
-				signed = "yes"
-			}
-			fmt.Fprintf(opts.Stdout, "Profile: %s\nSigned in: %s\n", dir, signed)
-			if !ok {
-				return slackweb.ErrSignedOut
-			}
-			return nil
+			return opts.WithBrowser(false, func(b cmdutil.Browser) error {
+				ok, err := b.SignedIn()
+				if err != nil {
+					return err
+				}
+				signed := "no"
+				if ok {
+					signed = "yes"
+				}
+				fmt.Fprintf(opts.Stdout, "Profile: %s\nSigned in: %s\n", dir, signed)
+				if !ok {
+					return slackweb.ErrSignedOut
+				}
+				return nil
+			})
 		},
 	}
 }

@@ -8,8 +8,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/open-cli-collective/slack-app-web/internal/cmd/cmdutil"
-	"github.com/open-cli-collective/slack-app-web/internal/exitcode"
 	"github.com/open-cli-collective/slack-app-web/internal/output"
+	"github.com/open-cli-collective/slack-app-web/internal/slackweb"
 )
 
 // NewCmd returns the apps command group.
@@ -29,21 +29,18 @@ func newListCmd(opts *cmdutil.Options) *cobra.Command {
 		Short:   "List the apps this account can manage",
 		Args:    cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			b, err := opts.Browser(false)
-			if err != nil {
-				return err
-			}
-			defer b.Close()
-			apps, err := b.ListApps()
-			if err != nil {
-				return err
-			}
-			rows := make([][]string, 0, len(apps))
-			for _, a := range apps {
-				rows = append(rows, []string{a.ID, a.Name, a.Workspace})
-			}
-			output.Table(opts.Stdout, []string{"ID", "NAME", "WORKSPACE"}, rows)
-			return nil
+			return opts.WithBrowser(false, func(b cmdutil.Browser) error {
+				apps, err := b.ListApps()
+				if err != nil {
+					return err
+				}
+				rows := make([][]string, 0, len(apps))
+				for _, a := range apps {
+					rows = append(rows, []string{a.ID, a.Name, a.Workspace})
+				}
+				output.Table(opts.Stdout, []string{"ID", "NAME", "WORKSPACE"}, rows)
+				return nil
+			})
 		},
 	}
 }
@@ -65,31 +62,28 @@ workspace requires admin approval, this submits the request and exits 1.`,
 			if err != nil {
 				return err
 			}
-			b, err := opts.Browser(false)
-			if err != nil {
-				return err
-			}
-			defer b.Close()
-			state, acted, err := b.Install(appID, reinstall)
-			if err != nil {
-				return err
-			}
-			switch {
-			case state.PendingApproval:
-				return exitcode.New(exitcode.Generic, fmt.Errorf("requested install of %s; a workspace admin must approve it", appID))
-			case !acted:
-				fmt.Fprintf(opts.Stdout, "%s is already installed\n", appID)
-				if state.ReinstallNeeded {
-					fmt.Fprintf(opts.Stderr, "Its scopes changed since the last install: run with --reinstall for them to take effect.\n")
+			return opts.WithBrowser(false, func(b cmdutil.Browser) error {
+				state, acted, err := b.Install(appID, reinstall)
+				if err != nil {
+					return err
 				}
-			case !state.Installed:
-				return exitcode.New(exitcode.Upstream, fmt.Errorf("%s does not show as installed after the install", appID))
-			case reinstall:
-				fmt.Fprintf(opts.Stdout, "Reinstalled %s\n", appID)
-			default:
-				fmt.Fprintf(opts.Stdout, "Installed %s\n", appID)
-			}
-			return nil
+				switch {
+				case state.PendingApproval:
+					return fmt.Errorf("%s: %w", appID, slackweb.ErrPendingApproval)
+				case !acted:
+					fmt.Fprintf(opts.Stdout, "%s is already installed\n", appID)
+					if state.ReinstallNeeded {
+						fmt.Fprintf(opts.Stderr, "Its scopes changed since the last install: run with --reinstall for them to take effect.\n")
+					}
+				case !state.Installed:
+					return &slackweb.UpstreamError{Err: fmt.Errorf("%s does not show as installed after the install", appID)}
+				case reinstall:
+					fmt.Fprintf(opts.Stdout, "Reinstalled %s\n", appID)
+				default:
+					fmt.Fprintf(opts.Stdout, "Installed %s\n", appID)
+				}
+				return nil
+			})
 		},
 	}
 	cmd.Flags().BoolVar(&reinstall, "reinstall", false, "Reinstall an app that is already installed")
