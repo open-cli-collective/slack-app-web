@@ -1,0 +1,6 @@
+[
+  ["App Name", "Workspace", "App ID", "App Type", "Distribution Status"],
+  ["Deploy Notices", "Example Co", "A0EXAMPLE01", "Modern", "Not distributed"],
+  ["Build Bot\n", "Example Co", "A0EXAMPLE02", "Modern", "Not distributed"],
+  ["", "", "", "", ""]
+]
