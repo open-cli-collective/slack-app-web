@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/open-cli-collective/slack-app-web/internal/secretout"
 	"github.com/open-cli-collective/slack-app-web/internal/slackweb"
 )
 
@@ -32,10 +31,7 @@ type Options struct {
 
 	Stdout io.Writer
 	Stderr io.Writer
-	// StdoutIsTerminal reports whether stdout is a terminal; secrets are
-	// refused when it is.
-	StdoutIsTerminal func() bool
-	Now              func() time.Time
+	Now    func() time.Time
 	// Open starts a browser session; tests replace it.
 	Open func(slackweb.Options) (Browser, error)
 }
@@ -48,13 +44,12 @@ func Default() *Options {
 		profile = "default"
 	}
 	return &Options{
-		Profile:          profile,
-		ProfileDir:       os.Getenv("SLAW_PROFILE_DIR"),
-		Timeout:          30 * time.Second,
-		Stdout:           os.Stdout,
-		Stderr:           os.Stderr,
-		StdoutIsTerminal: func() bool { return secretout.IsTerminal(os.Stdout) },
-		Now:              time.Now,
+		Profile:    profile,
+		ProfileDir: os.Getenv("SLAW_PROFILE_DIR"),
+		Timeout:    30 * time.Second,
+		Stdout:     os.Stdout,
+		Stderr:     os.Stderr,
+		Now:        time.Now,
 		Open: func(o slackweb.Options) (Browser, error) {
 			s, err := slackweb.Open(o)
 			if err != nil {

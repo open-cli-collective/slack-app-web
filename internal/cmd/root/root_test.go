@@ -3,6 +3,9 @@ package root
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -42,7 +45,14 @@ func (f *fakeBrowser) Install(_ string, reinstall bool) (slackweb.InstallState, 
 	return f.state, f.acted, nil
 }
 
-func run(t *testing.T, fake *fakeBrowser, terminal bool, args ...string) (string, error) {
+func run(t *testing.T, fake *fakeBrowser, args ...string) (string, error) {
+	t.Helper()
+	out, _, err := runAll(t, fake, args...)
+	return out, err
+}
+
+// runAll runs slaw and returns what it wrote to stdout and stderr.
+func runAll(t *testing.T, fake *fakeBrowser, args ...string) (string, string, error) {
 	t.Helper()
 	t.Setenv("SLAW_PROFILE", "")
 	t.Setenv("SLAW_PROFILE_DIR", "")
@@ -51,7 +61,6 @@ func run(t *testing.T, fake *fakeBrowser, terminal bool, args ...string) (string
 	var out, errOut bytes.Buffer
 	opts := cmdutil.Default()
 	opts.Stdout, opts.Stderr = &out, &errOut
-	opts.StdoutIsTerminal = func() bool { return terminal }
 	opts.Now = func() time.Time { return time.Unix(1_800_000_000, 0) }
 	opts.ProfileDir = t.TempDir()
 	opts.Open = func(slackweb.Options) (cmdutil.Browser, error) { opened++; return fake, nil }
@@ -60,43 +69,121 @@ func run(t *testing.T, fake *fakeBrowser, terminal bool, args ...string) (string
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
 	err := cmd.Execute()
-	return out.String(), err
+	return out.String(), errOut.String(), err
 }
 
-func TestSecretsAreRefusedOnATerminalBeforeTheBrowserOpens(t *testing.T) {
-	for _, args := range [][]string{{"bot-tokens", "get", "A0EXAMPLE01"}, {"config-tokens", "create"}, {"config-tokens", "get"}} {
-		fake := &fakeBrowser{botToken: "xoxb-1", pair: slackweb.ConfigToken{Token: "t"}}
-		out, err := run(t, fake, true, args...)
-		if !errors.Is(err, secretout.ErrTerminal) {
-			t.Fatalf("%v: err = %v, want ErrTerminal", args, err)
+const (
+	botToken     = "xoxb-1-2-distinctive"
+	accessToken  = "xoxe.xoxp-1-distinctive"
+	refreshToken = "xoxe-1-distinctive"
+)
+
+func tokenFake() *fakeBrowser {
+	return &fakeBrowser{botToken: botToken, pair: slackweb.ConfigToken{Token: accessToken, RefreshToken: refreshToken, Exp: 1_800_043_200}}
+}
+
+var secretCommands = [][]string{{"bot-tokens", "get", "A0EXAMPLE01"}, {"config-tokens", "create"}, {"config-tokens", "get"}}
+
+func assertNoToken(t *testing.T, args []string, outputs ...string) {
+	t.Helper()
+	for _, o := range outputs {
+		for _, tok := range []string{botToken, accessToken, refreshToken} {
+			if strings.Contains(o, tok) {
+				t.Fatalf("%v: a token reached slaw's output: %q", args, o)
+			}
 		}
-		if out != "" || *fake.opened != 0 {
-			t.Fatalf("%v: printed %q, opened browser %d times", args, out, *fake.opened)
+	}
+}
+
+func TestSecretsNeedASinkBeforeTheBrowserOpens(t *testing.T) {
+	for _, args := range secretCommands {
+		fake := tokenFake()
+		out, errOut, err := runAll(t, fake, args...)
+		if !errors.Is(err, secretout.ErrNoSink) || exitcode.Of(err) != exitcode.Usage {
+			t.Fatalf("%v: err = %v, want a usage error naming the sinks", args, err)
+		}
+		if *fake.opened != 0 {
+			t.Fatalf("%v: opened the browser without a sink", args)
+		}
+		assertNoToken(t, args, out, errOut, err.Error())
+	}
+}
+
+func TestSecretsRefuseTwoSinks(t *testing.T) {
+	for _, args := range secretCommands {
+		fake := tokenFake()
+		_, _, err := runAll(t, fake, append(args, "--to-file", filepath.Join(t.TempDir(), "x"), "--to-command", "cat")...)
+		if !errors.Is(err, secretout.ErrTwoSinks) || *fake.opened != 0 {
+			t.Fatalf("%v: err = %v, opened %d", args, err, *fake.opened)
 		}
 	}
 }
 
-func TestBotTokenGoesToAPipeExactly(t *testing.T) {
-	out, err := run(t, &fakeBrowser{botToken: "xoxb-1-2-abc"}, false, "bot-tokens", "get", "A0EXAMPLE01")
-	if err != nil || out != "xoxb-1-2-abc" {
-		t.Fatalf("out %q err %v", out, err)
+func TestSecretsGoToTheFileAndNeverToOutput(t *testing.T) {
+	want := map[string]string{
+		"bot-tokens":    botToken,
+		"config-tokens": `{"token":"xoxe.xoxp-1-distinctive","refresh_token":"xoxe-1-distinctive","exp":1800043200}`,
+	}
+	for _, args := range secretCommands {
+		path := filepath.Join(t.TempDir(), "secret")
+		out, errOut, err := runAll(t, tokenFake(), append(args, "--to-file", path)...)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		got, _ := os.ReadFile(path)
+		if string(got) != want[args[0]] {
+			t.Fatalf("%v: file holds %q", args, got)
+		}
+		assertNoToken(t, args, out, errOut)
 	}
 }
 
-func TestConfigTokenEmitsTheContract(t *testing.T) {
-	fake := &fakeBrowser{pair: slackweb.ConfigToken{Token: "xoxe.xoxp-1-a", RefreshToken: "xoxe-1-r", Exp: 1_800_043_200}}
-	out, err := run(t, fake, false, "config-tokens", "create")
-	if err != nil {
-		t.Fatal(err)
+func TestSecretsGoToTheCommandsStdin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
 	}
-	if want := `{"token":"xoxe.xoxp-1-a","refresh_token":"xoxe-1-r","exp":1800043200}`; out != want {
-		t.Fatalf("out %q, want %q", out, want)
+	for _, args := range secretCommands {
+		got := filepath.Join(t.TempDir(), "got")
+		out, errOut, err := runAll(t, tokenFake(), append(args, "--to-command", "cat > "+got+"; echo stored")...)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if b, _ := os.ReadFile(got); len(b) == 0 {
+			t.Fatalf("%v: the command read nothing", args)
+		}
+		if out != "stored\n" {
+			t.Fatalf("%v: stdout %q, want the command's own output", args, out)
+		}
+		assertNoToken(t, args, out, errOut)
+	}
+}
+
+func TestAFailingSinkLeaksNothing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
+	}
+	for _, args := range secretCommands {
+		out, errOut, err := runAll(t, tokenFake(), append(args, "--to-command", "cat >/dev/null; exit 3")...)
+		if err == nil {
+			t.Fatalf("%v: a failing command succeeded", args)
+		}
+		assertNoToken(t, args, out, errOut, err.Error())
+		existing := filepath.Join(t.TempDir(), "secret")
+		if err := os.WriteFile(existing, []byte("old"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		fake := tokenFake()
+		out, errOut, err = runAll(t, fake, append(args, "--to-file", existing)...)
+		if exitcode.Of(err) != exitcode.Usage || *fake.opened != 0 {
+			t.Fatalf("%v: existing file: err = %v, opened %d", args, err, *fake.opened)
+		}
+		assertNoToken(t, args, out, errOut, err.Error())
 	}
 }
 
 func TestAppIDIsValidated(t *testing.T) {
 	fake := &fakeBrowser{}
-	_, err := run(t, fake, false, "apps", "install", "not-an-app")
+	_, err := run(t, fake, "apps", "install", "not-an-app")
 	if exitcode.Of(err) != exitcode.Usage || *fake.opened != 0 {
 		t.Fatalf("err %v (code %d), opened %d", err, exitcode.Of(err), *fake.opened)
 	}
@@ -104,7 +191,7 @@ func TestAppIDIsValidated(t *testing.T) {
 
 func TestAppsList(t *testing.T) {
 	fake := &fakeBrowser{apps: []slackweb.App{{Name: "Build Bot", ID: "A0EXAMPLE02", Workspace: "Example Co"}}}
-	out, err := run(t, fake, true, "apps", "list")
+	out, err := run(t, fake, "apps", "list")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,12 +202,12 @@ func TestAppsList(t *testing.T) {
 
 func TestInstallLeavesAnInstalledAppAlone(t *testing.T) {
 	fake := &fakeBrowser{state: slackweb.InstallState{Installed: true}}
-	out, err := run(t, fake, true, "apps", "install", "A0EXAMPLE01")
+	out, err := run(t, fake, "apps", "install", "A0EXAMPLE01")
 	if err != nil || out != "A0EXAMPLE01 is already installed\n" || fake.reinstall {
 		t.Fatalf("out %q err %v reinstall %v", out, err, fake.reinstall)
 	}
 	fake = &fakeBrowser{state: slackweb.InstallState{Installed: true}, acted: true}
-	out, err = run(t, fake, true, "apps", "install", "A0EXAMPLE01", "--reinstall")
+	out, err = run(t, fake, "apps", "install", "A0EXAMPLE01", "--reinstall")
 	if err != nil || out != "Reinstalled A0EXAMPLE01\n" || !fake.reinstall {
 		t.Fatalf("out %q err %v reinstall %v", out, err, fake.reinstall)
 	}
@@ -128,14 +215,14 @@ func TestInstallLeavesAnInstalledAppAlone(t *testing.T) {
 
 func TestInstallPendingApprovalFails(t *testing.T) {
 	fake := &fakeBrowser{state: slackweb.InstallState{PendingApproval: true}, acted: true}
-	_, err := run(t, fake, true, "apps", "install", "A0EXAMPLE01")
+	_, err := run(t, fake, "apps", "install", "A0EXAMPLE01")
 	if !errors.Is(err, slackweb.ErrPendingApproval) {
 		t.Fatalf("err %v", err)
 	}
 }
 
 func TestMeExitsAuthWhenSignedOut(t *testing.T) {
-	out, err := run(t, &fakeBrowser{}, true, "me")
+	out, err := run(t, &fakeBrowser{}, "me")
 	if code, _ := cmdutil.Classify(err); code != exitcode.Auth || !strings.Contains(out, "Signed in: no") {
 		t.Fatalf("out %q err %v", out, err)
 	}
@@ -143,7 +230,7 @@ func TestMeExitsAuthWhenSignedOut(t *testing.T) {
 
 func TestIconsRejectsANonPNG(t *testing.T) {
 	fake := &fakeBrowser{}
-	_, err := run(t, fake, true, "icons", "update", "A0EXAMPLE01", "--file", "root.go")
+	_, err := run(t, fake, "icons", "update", "A0EXAMPLE01", "--file", "root.go")
 	if exitcode.Of(err) != exitcode.Usage || *fake.opened != 0 {
 		t.Fatalf("err %v opened %d", err, *fake.opened)
 	}
@@ -152,7 +239,7 @@ func TestIconsRejectsANonPNG(t *testing.T) {
 func TestLoginRejectsAWorkspaceThatIsNotASubdomain(t *testing.T) {
 	for _, ws := range []string{"evil.example@acme", "acme/x", "acme#", "-acme"} {
 		fake := &fakeBrowser{}
-		_, err := run(t, fake, true, "login", "--workspace", ws)
+		_, err := run(t, fake, "login", "--workspace", ws)
 		if exitcode.Of(err) != exitcode.Usage || *fake.opened != 0 {
 			t.Errorf("%q: err %v opened %d", ws, err, *fake.opened)
 		}

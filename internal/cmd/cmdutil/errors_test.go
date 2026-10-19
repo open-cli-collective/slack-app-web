@@ -23,7 +23,7 @@ func TestClassify(t *testing.T) {
 		{slackweb.ErrNoConfigToken, exitcode.NotFound, true},
 		{slackweb.ErrConfigTokenExists, exitcode.Usage, true},
 		{slackweb.ErrPendingApproval, exitcode.Generic, false},
-		{secretout.ErrTerminal, exitcode.Usage, false},
+		{CheckSink(secretout.Sink{}), exitcode.Usage, false},
 		{&slackweb.UpstreamError{Err: errors.New("x")}, exitcode.Upstream, false},
 		{Usage("bad"), exitcode.Usage, false},
 		{errors.New("other"), exitcode.Generic, false},
