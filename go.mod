@@ -2,6 +2,8 @@ module github.com/open-cli-collective/slack-app-web
 
 go 1.26.0
 
+toolchain go1.26.10
+
 require (
 	github.com/mxschmitt/playwright-go v0.6201.1
 	github.com/spf13/cobra v1.10.2
