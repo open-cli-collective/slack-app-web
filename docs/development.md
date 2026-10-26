@@ -77,6 +77,12 @@ git config core.hooksPath scripts/hooks          # reject AI-tool mentions in co
   The flow was confirmed against the live page on 2026-10-26 (a token with
   `connections:write` generated and delivered); the fixture
   `testdata/app-level-tokens-section.txt` is invented.
+- Each token's name in that section is a button that opens its details
+  dialog, with **Copy** and a **Revoke** button labelled "Revoke token".
+  Revoke asks in an alert dialog ("Are you sure?") whose confirm button is
+  **Yes, I'm Sure** with a typographic apostrophe; `app-tokens revoke`
+  matches either apostrophe and waits for the name to leave the list.
+  Confirmed against the live page on 2026-10-26.
 
 ## Release
 

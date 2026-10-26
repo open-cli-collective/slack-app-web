@@ -31,9 +31,11 @@ func Classify(err error) (code int, hint string) {
 		if errors.As(err, &coded) {
 			code = coded.Code
 		}
-		return code, "revoke the token with this name on the app's Basic Information page, then run the command again"
+		return code, "run `slaw app-tokens revoke` with this name, then run the command again"
 	case errors.Is(err, slackweb.ErrAppTokenExists):
-		return exitcode.Usage, "pass another --name, or revoke the existing token on the app's Basic Information page"
+		return exitcode.Usage, "pass another --name, or run `slaw app-tokens revoke` with this name"
+	case errors.Is(err, slackweb.ErrNoAppToken):
+		return exitcode.NotFound, ""
 	case errors.Is(err, slackweb.ErrScopeNotOffered):
 		return exitcode.Usage, ""
 	case errors.Is(err, slackweb.ErrPendingApproval):

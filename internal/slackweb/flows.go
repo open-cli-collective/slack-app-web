@@ -464,6 +464,8 @@ var (
 	tokenNameField   = regexp.MustCompile(`(?i)token name`)
 	generateButton   = regexp.MustCompile(`(?i)^generate$`)
 	doneButton       = regexp.MustCompile(`(?i)^(done|close)$`)
+	revokeAppToken   = regexp.MustCompile(`(?i)^revoke token$`)
+	confirmRevoke    = regexp.MustCompile(`(?i)^yes, i.m sure$`)
 )
 
 // CreateAppToken generates an app-level token named name with scopes on
@@ -528,6 +530,64 @@ func (s *Session) CreateAppToken(appID, name string, scopes []string) (string, e
 		_ = done.First().Click()
 	}
 	return token, nil
+}
+
+// RevokeAppToken revokes appID's app-level token named name on the Basic
+// Information page. The token's name opens its details, where Revoke asks
+// for confirmation in an alert dialog. Revoking needs only the name, so it
+// also clears a token whose value was lost. ErrNoAppToken when the app lists
+// no token with the name.
+func (s *Session) RevokeAppToken(appID, name string) error {
+	if err := s.requireSignedIn(); err != nil {
+		return err
+	}
+	if err := s.goto_(appsURL + "/" + appID + "/general"); err != nil {
+		return err
+	}
+	open := s.page.GetByRole("button", playwright.PageGetByRoleOptions{Name: generateAppToken}).
+		Or(s.page.GetByRole("link", playwright.PageGetByRoleOptions{Name: generateAppToken}))
+	if !s.visible(open, s.timeout) {
+		return fmt.Errorf("%s: %w", appID, ErrAppNotFound)
+	}
+	section, err := s.appTokensSection(open)
+	if err != nil {
+		return err
+	}
+	if !tokenNameListed(section, name) {
+		return fmt.Errorf("%q: %w", name, ErrNoAppToken)
+	}
+	entry := s.page.GetByRole("button", playwright.PageGetByRoleOptions{Name: name, Exact: playwright.Bool(true)})
+	if n, err := entry.Count(); err != nil {
+		return err
+	} else if n != 1 {
+		return upstream("expected one token named %q to open, found %d", name, n)
+	}
+	if err := entry.Click(); err != nil {
+		return err
+	}
+	revoke := s.page.GetByRole("dialog").GetByRole("button", playwright.LocatorGetByRoleOptions{Name: revokeAppToken})
+	if !s.visible(revoke, s.timeout) {
+		return upstream("the token's details have no Revoke button")
+	}
+	if err := revoke.First().Click(); err != nil {
+		return err
+	}
+	confirm := s.page.GetByRole("alertdialog").GetByRole("button", playwright.LocatorGetByRoleOptions{Name: confirmRevoke})
+	if !s.visible(confirm, s.timeout) {
+		return upstream("no revoke confirmation appeared")
+	}
+	if n, err := confirm.Count(); err != nil {
+		return err
+	} else if n != 1 {
+		return upstream("expected one revoke confirmation button, found %d", n)
+	}
+	if err := confirm.Click(); err != nil {
+		return err
+	}
+	if err := entry.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateDetached, Timeout: &s.timeout}); err != nil {
+		return upstream("the token %q is still listed after revoking it", name)
+	}
+	return nil
 }
 
 // appTokensSection returns the text of the smallest element holding both

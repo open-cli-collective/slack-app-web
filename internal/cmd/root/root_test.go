@@ -26,6 +26,7 @@ type fakeBrowser struct {
 	pair      slackweb.ConfigToken
 	appToken  string
 	tokenName string
+	revoked   string
 	scopes    []string
 	iconPath  string
 	reinstall bool
@@ -46,6 +47,10 @@ func (f *fakeBrowser) GetConfigToken(string, time.Time) (slackweb.ConfigToken, e
 func (f *fakeBrowser) CreateAppToken(_, name string, scopes []string) (string, error) {
 	f.tokenName, f.scopes = name, scopes
 	return f.appToken, nil
+}
+func (f *fakeBrowser) RevokeAppToken(_, name string) error {
+	f.revoked = name
+	return nil
 }
 func (f *fakeBrowser) Install(_ string, reinstall bool) (slackweb.InstallState, bool, error) {
 	f.reinstall = reinstall
@@ -218,6 +223,28 @@ func TestAppTokensValidateBeforeTheBrowserOpens(t *testing.T) {
 	} {
 		fake := tokenFake()
 		_, err := run(t, fake, append(args, sink...)...)
+		if exitcode.Of(err) != exitcode.Usage || *fake.opened != 0 {
+			t.Errorf("%v: err %v (code %d), opened %d", args, err, exitcode.Of(err), *fake.opened)
+		}
+	}
+}
+
+func TestAppTokensRevokeByName(t *testing.T) {
+	fake := tokenFake()
+	out, err := run(t, fake, "app-tokens", "revoke", "A0EXAMPLE01", "--name", " socket-mode ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.revoked != "socket-mode" || !strings.Contains(out, `"socket-mode"`) {
+		t.Fatalf("revoked %q, output %q", fake.revoked, out)
+	}
+	for _, args := range [][]string{
+		{"app-tokens", "revoke", "not-an-app", "--name", "n"},
+		{"app-tokens", "revoke", "A0EXAMPLE01"},
+		{"app-tokens", "revoke", "A0EXAMPLE01", "--name", "  "},
+	} {
+		fake := tokenFake()
+		_, err := run(t, fake, args...)
 		if exitcode.Of(err) != exitcode.Usage || *fake.opened != 0 {
 			t.Errorf("%v: err %v (code %d), opened %d", args, err, exitcode.Of(err), *fake.opened)
 		}
