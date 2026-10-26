@@ -24,6 +24,9 @@ type fakeBrowser struct {
 	acted     bool
 	botToken  string
 	pair      slackweb.ConfigToken
+	appToken  string
+	tokenName string
+	scopes    []string
 	iconPath  string
 	reinstall bool
 }
@@ -39,6 +42,10 @@ func (f *fakeBrowser) CreateConfigToken(string, bool, time.Time) (slackweb.Confi
 }
 func (f *fakeBrowser) GetConfigToken(string, time.Time) (slackweb.ConfigToken, error) {
 	return f.pair, nil
+}
+func (f *fakeBrowser) CreateAppToken(_, name string, scopes []string) (string, error) {
+	f.tokenName, f.scopes = name, scopes
+	return f.appToken, nil
 }
 func (f *fakeBrowser) Install(_ string, reinstall bool) (slackweb.InstallState, bool, error) {
 	f.reinstall = reinstall
@@ -76,18 +83,24 @@ const (
 	botToken     = "xoxb-1-2-distinctive"
 	accessToken  = "xoxe.xoxp-1-distinctive"
 	refreshToken = "xoxe-1-distinctive"
+	appToken     = "xapp-1-A0EXAMPLE01-1-distinctive"
 )
 
 func tokenFake() *fakeBrowser {
-	return &fakeBrowser{botToken: botToken, pair: slackweb.ConfigToken{Token: accessToken, RefreshToken: refreshToken, Exp: 1_800_043_200}}
+	return &fakeBrowser{botToken: botToken, appToken: appToken, pair: slackweb.ConfigToken{Token: accessToken, RefreshToken: refreshToken, Exp: 1_800_043_200}}
 }
 
-var secretCommands = [][]string{{"bot-tokens", "get", "A0EXAMPLE01"}, {"config-tokens", "create"}, {"config-tokens", "get"}}
+var secretCommands = [][]string{
+	{"bot-tokens", "get", "A0EXAMPLE01"},
+	{"config-tokens", "create"},
+	{"config-tokens", "get"},
+	{"app-tokens", "create", "A0EXAMPLE01", "--name", "socket-mode", "--scope", "connections:write"},
+}
 
 func assertNoToken(t *testing.T, args []string, outputs ...string) {
 	t.Helper()
 	for _, o := range outputs {
-		for _, tok := range []string{botToken, accessToken, refreshToken} {
+		for _, tok := range []string{botToken, accessToken, refreshToken, appToken} {
 			if strings.Contains(o, tok) {
 				t.Fatalf("%v: a token reached slaw's output: %q", args, o)
 			}
@@ -122,6 +135,7 @@ func TestSecretsRefuseTwoSinks(t *testing.T) {
 func TestSecretsGoToTheFileAndNeverToOutput(t *testing.T) {
 	want := map[string]string{
 		"bot-tokens":    botToken,
+		"app-tokens":    appToken,
 		"config-tokens": `{"token":"xoxe.xoxp-1-distinctive","refresh_token":"xoxe-1-distinctive","exp":1800043200}`,
 	}
 	for _, args := range secretCommands {
@@ -178,6 +192,35 @@ func TestAFailingSinkLeaksNothing(t *testing.T) {
 			t.Fatalf("%v: existing file: err = %v, opened %d", args, err, *fake.opened)
 		}
 		assertNoToken(t, args, out, errOut, err.Error())
+	}
+}
+
+func TestAppTokensPassNameAndScopes(t *testing.T) {
+	fake := tokenFake()
+	_, err := run(t, fake, "app-tokens", "create", "A0EXAMPLE01", "--name", " socket-mode ",
+		"--scope", "connections:write", "--scope", "authorizations:read", "--to-file", filepath.Join(t.TempDir(), "t"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.tokenName != "socket-mode" || strings.Join(fake.scopes, ",") != "connections:write,authorizations:read" {
+		t.Fatalf("name %q scopes %v", fake.tokenName, fake.scopes)
+	}
+}
+
+func TestAppTokensValidateBeforeTheBrowserOpens(t *testing.T) {
+	sink := []string{"--to-file", "unused"}
+	for _, args := range [][]string{
+		{"app-tokens", "create", "not-an-app", "--name", "n", "--scope", "connections:write"},
+		{"app-tokens", "create", "A0EXAMPLE01", "--scope", "connections:write"},
+		{"app-tokens", "create", "A0EXAMPLE01", "--name", "  ", "--scope", "connections:write"},
+		{"app-tokens", "create", "A0EXAMPLE01", "--name", "n"},
+		{"app-tokens", "create", "A0EXAMPLE01", "--name", "n", "--scope", "connections write"},
+	} {
+		fake := tokenFake()
+		_, err := run(t, fake, append(args, sink...)...)
+		if exitcode.Of(err) != exitcode.Usage || *fake.opened != 0 {
+			t.Errorf("%v: err %v (code %d), opened %d", args, err, exitcode.Of(err), *fake.opened)
+		}
 	}
 }
 

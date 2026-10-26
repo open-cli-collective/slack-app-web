@@ -1,7 +1,7 @@
 // Package slackweb drives api.slack.com in a persistent Chromium profile for
 // the Slack app steps that have no API: signing in, generating an app
-// configuration token, installing an app, reading its bot token and
-// uploading its icon. It never logs, prints or screenshots page content, so
+// configuration token, installing an app, reading its bot token,
+// generating an app-level token and uploading its icon. It never logs, prints or screenshots page content, so
 // a token on a page cannot leak through it.
 package slackweb
 
