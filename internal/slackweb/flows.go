@@ -292,7 +292,9 @@ func (s *Session) deleteConfigToken(row playwright.Locator) error {
 	if err := row.GetByRole("button", playwright.LocatorGetByRoleOptions{Name: "Delete token"}).First().Click(); err != nil {
 		return err
 	}
-	confirm := s.page.GetByRole("dialog").GetByRole("button", playwright.LocatorGetByRoleOptions{Name: regexp.MustCompile(`(?i)^(delete|revoke|yes|confirm)`)})
+	// The confirmation is a popover, not a dialog, and its button is named
+	// "Revoke Token"; the row's own "Delete token" button must not match.
+	confirm := s.page.GetByRole("button", playwright.PageGetByRoleOptions{Name: regexp.MustCompile(`(?i)^(revoke( token)?|yes|confirm)$`)})
 	if s.visible(confirm, 5000) {
 		if err := confirm.First().Click(); err != nil {
 			return err
@@ -329,11 +331,20 @@ func (s *Session) chooseWorkspace(dialog playwright.Locator, team string) error 
 		_, err := sel.First().SelectOption(playwright.SelectOptionValues{Labels: &[]string{team}})
 		return err
 	}
-	if team == "" {
-		return nil
-	}
+	// The picker starts empty even when the account has one workspace, and
+	// Generate stays disabled until one is chosen.
 	if err := dialog.GetByRole("combobox").Or(dialog.GetByText(regexp.MustCompile(`(?i)select a workspace`))).First().Click(); err != nil {
 		return err
+	}
+	if team == "" {
+		option := s.page.GetByRole("option")
+		if !s.visible(option, s.timeout) {
+			return fmt.Errorf("the workspace picker offered no workspace: %w", ErrWorkspaceNotOffered)
+		}
+		if n, _ := option.Count(); n > 1 {
+			return fmt.Errorf("the account has %d workspaces; name one with --team", n)
+		}
+		return option.First().Click()
 	}
 	option := s.page.GetByRole("option", playwright.PageGetByRoleOptions{Name: team})
 	if !s.visible(option, s.timeout) {
