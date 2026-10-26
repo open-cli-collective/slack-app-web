@@ -292,11 +292,19 @@ func (s *Session) deleteConfigToken(row playwright.Locator) error {
 	if err := row.GetByRole("button", playwright.LocatorGetByRoleOptions{Name: "Delete token"}).First().Click(); err != nil {
 		return err
 	}
-	confirm := s.page.GetByRole("dialog").GetByRole("button", playwright.LocatorGetByRoleOptions{Name: regexp.MustCompile(`(?i)^(delete|revoke|yes|confirm)`)})
-	if s.visible(confirm, 5000) {
-		if err := confirm.First().Click(); err != nil {
-			return err
-		}
+	// The confirmation is a popover, not a dialog, with one button named
+	// "Revoke Token".
+	confirm := s.page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Revoke Token", Exact: playwright.Bool(true)})
+	if !s.visible(confirm, 5000) {
+		return upstream("no Revoke Token confirmation appeared")
+	}
+	if n, err := confirm.Count(); err != nil {
+		return err
+	} else if n != 1 {
+		return upstream("expected one Revoke Token button, found %d", n)
+	}
+	if err := confirm.Click(); err != nil {
+		return err
 	}
 	if err := row.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateDetached, Timeout: &s.timeout}); err != nil {
 		return errors.New("the existing configuration token was not deleted")
@@ -329,17 +337,57 @@ func (s *Session) chooseWorkspace(dialog playwright.Locator, team string) error 
 		_, err := sel.First().SelectOption(playwright.SelectOptionValues{Labels: &[]string{team}})
 		return err
 	}
-	if team == "" {
-		return nil
-	}
+	// The picker starts empty even when the account has one workspace, and
+	// Generate stays disabled until one is chosen.
 	if err := dialog.GetByRole("combobox").Or(dialog.GetByText(regexp.MustCompile(`(?i)select a workspace`))).First().Click(); err != nil {
 		return err
+	}
+	if team == "" {
+		option := s.page.GetByRole("option")
+		if !s.visible(option, s.timeout) {
+			return fmt.Errorf("the workspace picker offered no workspace: %w", ErrWorkspaceNotOffered)
+		}
+		n, err := settledCount(option)
+		if err != nil {
+			return err
+		}
+		if n > 1 {
+			return fmt.Errorf("the account has %d workspaces; name one with --team", n)
+		}
+		return option.First().Click()
 	}
 	option := s.page.GetByRole("option", playwright.PageGetByRoleOptions{Name: team})
 	if !s.visible(option, s.timeout) {
 		return fmt.Errorf("%q: %w", team, ErrWorkspaceNotOffered)
 	}
 	return option.First().Click()
+}
+
+// settledCount counts loc once the count has held for a moment, so a list
+// that renders its options in steps is not counted half-drawn.
+func settledCount(loc playwright.Locator) (int, error) {
+	const (
+		step   = 100 * time.Millisecond
+		steady = 3
+		limit  = 50
+	)
+	last, same := -1, 0
+	for i := 0; i < limit; i++ {
+		n, err := loc.Count()
+		if err != nil {
+			return 0, err
+		}
+		if n == last {
+			same++
+			if same >= steady {
+				return n, nil
+			}
+		} else {
+			last, same = n, 0
+		}
+		time.Sleep(step)
+	}
+	return last, nil
 }
 
 func (s *Session) copyFrom(row playwright.Locator, label string, pattern *regexp.Regexp) (string, error) {

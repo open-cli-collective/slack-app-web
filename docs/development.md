@@ -62,6 +62,13 @@ git config core.hooksPath scripts/hooks          # reject AI-tool mentions in co
 - The install page shows "Bot User OAuth Token" once installed and an
   "Install to <workspace>" or "Reinstall to <workspace>" button.
 
+- Your Apps' **Generate Token** dialog has a workspace picker (a combobox,
+  not a `<select>`) that starts empty even when the account has one
+  workspace, and **Generate** stays disabled until one is chosen.
+  `config-tokens create` picks the only option and asks for `--team` when
+  there are several.
+- Deleting a configuration token asks for confirmation in a popover, not a
+  dialog, with one button named **Revoke Token**.
 - Basic Information has an **App-Level Tokens** section listing each token
   by name with its scopes, and a **Generate Token and Scopes** button that
   opens a dialog with a token name field, an **Add Scope** picker and
