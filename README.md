@@ -54,7 +54,9 @@ cannot be read or delivered, the command fails with a hint to revoke it: the
 token exists and its value is lost, so a rerun under the same name is refused
 until it is revoked. A destination that failed keeps its usual exit code.
 `app-tokens revoke` needs only the token's name, so it clears a token whose
-value was lost; every copy of the token stops working at once.
+value was lost; every copy of the token stops working at once. Pass the name
+exactly as the app lists it: the match is case-sensitive, unlike the
+duplicate check in `create`.
 
 `config-tokens create` and `get` deliver one JSON object with the field names
 of Slack's `tooling.tokens.rotate`:
