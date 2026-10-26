@@ -77,8 +77,8 @@ homebrew_casks:
     description: "Slack app steps that have no API, done in a headless browser"
     hooks:
       post:
-        install: |
-          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/slaw"]
+        install_steps: |
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/slaw"]
     caveats: |
       Download the browser slaw drives, then sign in once:
         slaw browser install
