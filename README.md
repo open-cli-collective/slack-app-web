@@ -6,6 +6,8 @@
   `apps.manifest.*` API takes;
 - **install or reinstall** an app to its workspace;
 - read an installed app's **bot token**;
+- generate an **app-level token** (`xapp-...`), such as the one Socket Mode
+  needs;
 - upload an app's **icon**;
 - **list** the apps an account manages.
 
@@ -38,7 +40,18 @@ slaw icons update A0123456789 --file icon.png
 slaw config-tokens create --to-command '<command that reads the pair on stdin>'
 slaw config-tokens get --to-file ./pair.json
 slaw bot-tokens get A0123456789 --to-command '<command that reads the token on stdin>'
+slaw app-tokens create A0123456789 --name socket-mode --scope connections:write \
+  --to-command '<command that reads the token on stdin>'
 ```
+
+`app-tokens create` takes a token name and one `--scope` per scope (Socket
+Mode needs `connections:write`). Slack shows an app-level token's value only
+when it is generated, so `create` refuses a name the app already lists
+instead of making a second token under it; revoke the old one on the app's
+Basic Information page or choose another name. If the token is generated but
+cannot be read or delivered, the command fails with a hint to revoke it: the
+token exists and its value is lost, so a rerun under the same name is refused
+until it is revoked. A destination that failed keeps its usual exit code.
 
 `config-tokens create` and `get` deliver one JSON object with the field names
 of Slack's `tooling.tokens.rotate`:
@@ -54,7 +67,7 @@ configuration token per workspace: `create` refuses when one exists, and
 
 ## Keeping tokens out of logs
 
-`bot-tokens get` and `config-tokens create|get` never write a token to
+`bot-tokens get`, `app-tokens create` and `config-tokens create|get` never write a token to
 slaw's own stdout or stderr, whether that is a terminal, an agent
 transcript or a CI log. Each takes exactly one destination:
 

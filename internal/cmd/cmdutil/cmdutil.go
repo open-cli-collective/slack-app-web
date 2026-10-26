@@ -19,6 +19,7 @@ type Browser interface {
 	BotToken(appID string) (string, error)
 	CreateConfigToken(team string, replace bool, now time.Time) (slackweb.ConfigToken, error)
 	GetConfigToken(team string, now time.Time) (slackweb.ConfigToken, error)
+	CreateAppToken(appID, name string, scopes []string) (string, error)
 	UpdateIcon(appID, png string) error
 	Close()
 }

@@ -1,0 +1,9 @@
+App-Level Tokens
+Use app-level tokens to connect to Slack and perform actions on behalf of your app.
+
+socket-mode
+connections:write
+Deploy Listener
+connections:write
+authorizations:read
+Generate Token and Scopes

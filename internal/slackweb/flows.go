@@ -292,11 +292,19 @@ func (s *Session) deleteConfigToken(row playwright.Locator) error {
 	if err := row.GetByRole("button", playwright.LocatorGetByRoleOptions{Name: "Delete token"}).First().Click(); err != nil {
 		return err
 	}
-	confirm := s.page.GetByRole("dialog").GetByRole("button", playwright.LocatorGetByRoleOptions{Name: regexp.MustCompile(`(?i)^(delete|revoke|yes|confirm)`)})
-	if s.visible(confirm, 5000) {
-		if err := confirm.First().Click(); err != nil {
-			return err
-		}
+	// The confirmation is a popover, not a dialog, with one button named
+	// "Revoke Token".
+	confirm := s.page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Revoke Token", Exact: playwright.Bool(true)})
+	if !s.visible(confirm, 5000) {
+		return upstream("no Revoke Token confirmation appeared")
+	}
+	if n, err := confirm.Count(); err != nil {
+		return err
+	} else if n != 1 {
+		return upstream("expected one Revoke Token button, found %d", n)
+	}
+	if err := confirm.Click(); err != nil {
+		return err
 	}
 	if err := row.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateDetached, Timeout: &s.timeout}); err != nil {
 		return errors.New("the existing configuration token was not deleted")
@@ -329,17 +337,57 @@ func (s *Session) chooseWorkspace(dialog playwright.Locator, team string) error 
 		_, err := sel.First().SelectOption(playwright.SelectOptionValues{Labels: &[]string{team}})
 		return err
 	}
-	if team == "" {
-		return nil
-	}
+	// The picker starts empty even when the account has one workspace, and
+	// Generate stays disabled until one is chosen.
 	if err := dialog.GetByRole("combobox").Or(dialog.GetByText(regexp.MustCompile(`(?i)select a workspace`))).First().Click(); err != nil {
 		return err
+	}
+	if team == "" {
+		option := s.page.GetByRole("option")
+		if !s.visible(option, s.timeout) {
+			return fmt.Errorf("the workspace picker offered no workspace: %w", ErrWorkspaceNotOffered)
+		}
+		n, err := settledCount(option)
+		if err != nil {
+			return err
+		}
+		if n > 1 {
+			return fmt.Errorf("the account has %d workspaces; name one with --team", n)
+		}
+		return option.First().Click()
 	}
 	option := s.page.GetByRole("option", playwright.PageGetByRoleOptions{Name: team})
 	if !s.visible(option, s.timeout) {
 		return fmt.Errorf("%q: %w", team, ErrWorkspaceNotOffered)
 	}
 	return option.First().Click()
+}
+
+// settledCount counts loc once the count has held for a moment, so a list
+// that renders its options in steps is not counted half-drawn.
+func settledCount(loc playwright.Locator) (int, error) {
+	const (
+		step   = 100 * time.Millisecond
+		steady = 3
+		limit  = 50
+	)
+	last, same := -1, 0
+	for i := 0; i < limit; i++ {
+		n, err := loc.Count()
+		if err != nil {
+			return 0, err
+		}
+		if n == last {
+			same++
+			if same >= steady {
+				return n, nil
+			}
+		} else {
+			last, same = n, 0
+		}
+		time.Sleep(step)
+	}
+	return last, nil
 }
 
 func (s *Session) copyFrom(row playwright.Locator, label string, pattern *regexp.Regexp) (string, error) {
@@ -407,4 +455,151 @@ func (s *Session) avatar() string {
 	}
 	src, _ := v.(string)
 	return src
+}
+
+var (
+	appTokensHeading = regexp.MustCompile(`(?i)^app-level tokens$`)
+	generateAppToken = regexp.MustCompile(`(?i)generate token and scopes`)
+	addScopeButton   = regexp.MustCompile(`(?i)^add scope`)
+	tokenNameField   = regexp.MustCompile(`(?i)token name`)
+	generateButton   = regexp.MustCompile(`(?i)^generate$`)
+	doneButton       = regexp.MustCompile(`(?i)^(done|close)$`)
+)
+
+// CreateAppToken generates an app-level token named name with scopes on
+// appID's Basic Information page and returns it. Slack shows the token's
+// value in the dialog that follows Generate; a name the app already lists
+// is an ErrAppTokenExists, checked before anything is created.
+func (s *Session) CreateAppToken(appID, name string, scopes []string) (string, error) {
+	if err := s.requireSignedIn(); err != nil {
+		return "", err
+	}
+	if err := s.goto_(appsURL + "/" + appID + "/general"); err != nil {
+		return "", err
+	}
+	open := s.page.GetByRole("button", playwright.PageGetByRoleOptions{Name: generateAppToken}).
+		Or(s.page.GetByRole("link", playwright.PageGetByRoleOptions{Name: generateAppToken}))
+	if !s.visible(open, s.timeout) {
+		return "", fmt.Errorf("%s: %w", appID, ErrAppNotFound)
+	}
+	section, err := s.appTokensSection(open)
+	if err != nil {
+		return "", err
+	}
+	if tokenNameListed(section, name) {
+		return "", fmt.Errorf("%q: %w", name, ErrAppTokenExists)
+	}
+	if err := open.First().Click(); err != nil {
+		return "", err
+	}
+	dialog := s.page.GetByRole("dialog")
+	if !s.visible(dialog, s.timeout) {
+		return "", upstream("the Generate Token and Scopes dialog did not open")
+	}
+	field := dialog.GetByLabel(tokenNameField).Or(dialog.GetByRole("textbox"))
+	if !s.visible(field, s.timeout) {
+		return "", upstream("the token dialog has no name field")
+	}
+	if err := field.First().Fill(name); err != nil {
+		return "", err
+	}
+	for _, scope := range scopes {
+		if err := s.addAppTokenScope(dialog, scope); err != nil {
+			return "", err
+		}
+	}
+	if err := s.resetCopied(); err != nil {
+		return "", err
+	}
+	generate := dialog.GetByRole("button", playwright.LocatorGetByRoleOptions{Name: generateButton})
+	if !s.visible(generate, s.timeout) {
+		return "", upstream("the token dialog has no Generate button")
+	}
+	if err := generate.First().Click(); err != nil {
+		return "", err
+	}
+	token, err := s.readAppToken()
+	if err != nil {
+		return "", fmt.Errorf("%q: %w: %w", name, ErrAppTokenUnread, err)
+	}
+	done := s.page.GetByRole("dialog").GetByRole("button", playwright.LocatorGetByRoleOptions{Name: doneButton})
+	if s.visible(done, 5000) {
+		// The token is already read; a dialog left open does not undo it.
+		_ = done.First().Click()
+	}
+	return token, nil
+}
+
+// appTokensSection returns the text of the smallest element holding both
+// the App-Level Tokens heading and the button that opens the dialog, which
+// is where the page lists the app's existing tokens by name. The text holds
+// names and scopes, never token values.
+func (s *Session) appTokensSection(open playwright.Locator) (string, error) {
+	heading := s.page.GetByText(appTokensHeading)
+	if !s.visible(heading, s.timeout) {
+		return "", upstream("the Basic Information page has no App-Level Tokens section")
+	}
+	// Every element that holds both is an ancestor of both, so in document
+	// order the last one is the innermost.
+	section := s.page.Locator("div, section").
+		Filter(playwright.LocatorFilterOptions{Has: heading}).
+		Filter(playwright.LocatorFilterOptions{Has: open}).
+		Last()
+	return section.InnerText()
+}
+
+// addAppTokenScope opens the Add Scope picker in the token dialog, picks
+// scope, and confirms the dialog now lists it.
+func (s *Session) addAppTokenScope(dialog playwright.Locator, scope string) error {
+	add := dialog.GetByRole("button", playwright.LocatorGetByRoleOptions{Name: addScopeButton})
+	if !s.visible(add, s.timeout) {
+		return upstream("the token dialog has no Add Scope button")
+	}
+	if err := add.First().Click(); err != nil {
+		return err
+	}
+	exact := regexp.MustCompile(`^\s*` + regexp.QuoteMeta(scope) + `\b`)
+	option := s.page.GetByRole("option", playwright.PageGetByRoleOptions{Name: exact}).
+		Or(s.page.GetByRole("menuitem", playwright.PageGetByRoleOptions{Name: exact})).
+		Or(s.page.GetByRole("menuitemcheckbox", playwright.PageGetByRoleOptions{Name: exact}))
+	if !s.visible(option, s.timeout) {
+		return fmt.Errorf("%q: %w", scope, ErrScopeNotOffered)
+	}
+	if err := option.First().Click(); err != nil {
+		return err
+	}
+	if !s.visible(dialog.GetByText(scope, playwright.LocatorGetByTextOptions{Exact: playwright.Bool(true)}), s.timeout) {
+		return upstream("the scope %s was not added to the token dialog", scope)
+	}
+	return nil
+}
+
+// readAppToken waits for the token Slack shows after Generate, in the
+// dialog's text or one of its inputs, falling back to its Copy button.
+func (s *Session) readAppToken() (string, error) {
+	copyButton := s.page.GetByRole("dialog").GetByRole("button", playwright.LocatorGetByRoleOptions{Name: regexp.MustCompile(`(?i)copy`)})
+	deadline := time.Now().Add(time.Duration(s.timeout) * time.Millisecond)
+	for time.Now().Before(deadline) {
+		v, err := s.page.Evaluate(`() => [...document.querySelectorAll('[role="dialog"]')].flatMap(d => [d.textContent || '', ...[...d.querySelectorAll('input, textarea')].map(i => i.value)])`)
+		if err != nil {
+			return "", err
+		}
+		if token := firstMatch(appTokenPattern, toStrings(v)); token != "" {
+			return token, nil
+		}
+		if ok, _ := copyButton.First().IsVisible(); ok {
+			// A failed click is retried on the next pass; finding the
+			// token is what decides success.
+			_ = copyButton.First().Click()
+			copied, err := s.copied()
+			if err != nil {
+				return "", err
+			}
+			if token := firstMatch(appTokenPattern, copied); token != "" {
+				return token, nil
+			}
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return "", upstream("no app-level token appeared after Generate")
 }
