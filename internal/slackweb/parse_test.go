@@ -85,6 +85,35 @@ func TestTokenPatterns(t *testing.T) {
 	}
 }
 
+func TestTokenNameListed(t *testing.T) {
+	raw, err := os.ReadFile("../../testdata/app-level-tokens-section.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := string(raw)
+	cases := map[string]bool{
+		"socket-mode":       true,
+		"  socket-mode ":    true,
+		"Deploy  Listener":  true,
+		"socket":            false,
+		"Socket-Mode":       true,
+		"connections:write": true,
+		"new-token":         false,
+	}
+	for name, want := range cases {
+		if got := tokenNameListed(section, name); got != want {
+			t.Errorf("tokenNameListed(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestAppTokenPattern(t *testing.T) {
+	text := "Token\nxapp-1-A0EXAMPLE01-1234567890123-0123abcdef\nCopy"
+	if got := firstMatch(appTokenPattern, []string{"Generate", text}); got != "xapp-1-A0EXAMPLE01-1234567890123-0123abcdef" {
+		t.Errorf("app token = %q", got)
+	}
+}
+
 func TestValidAppID(t *testing.T) {
 	for id, want := range map[string]bool{"A0EXAMPLE01": true, "a0example": false, "C0123456": false, "": false} {
 		if got := ValidAppID(id); got != want {

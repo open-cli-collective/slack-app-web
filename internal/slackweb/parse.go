@@ -32,6 +32,7 @@ var (
 	configAccessPattern  = regexp.MustCompile(`xoxe\.xoxp-[A-Za-z0-9-]+`)
 	configRefreshPattern = regexp.MustCompile(`xoxe-[0-9]-[A-Za-z0-9-]+`)
 	botTokenPattern      = regexp.MustCompile(`xoxb-[A-Za-z0-9-]+`)
+	appTokenPattern      = regexp.MustCompile(`xapp-[0-9]-[A-Za-z0-9-]+`)
 	expiresInPattern     = regexp.MustCompile(`(?i)expires in (\d+) (minute|hour|day)s?`)
 )
 
@@ -92,6 +93,21 @@ func parseExpiry(text string, now time.Time) int64 {
 		unit = 24 * time.Hour
 	}
 	return now.Add(time.Duration(n) * unit).Unix()
+}
+
+// tokenNameListed reports whether the App-Level Tokens section's text lists
+// a token named name. The section puts each token's name on a line of its
+// own, so a name only counts when it is a whole line, compared with spaces
+// collapsed and case ignored. Erring toward a match only costs a refusal,
+// while a missed match would create a second token under the name.
+func tokenNameListed(section, name string) bool {
+	want := strings.Join(strings.Fields(name), " ")
+	for _, line := range strings.Split(section, "\n") {
+		if strings.EqualFold(strings.Join(strings.Fields(line), " "), want) {
+			return true
+		}
+	}
+	return false
 }
 
 // firstMatch returns the first match of pattern across candidates.

@@ -23,6 +23,12 @@ var (
 	ErrNoConfigToken = errors.New("the workspace has no app configuration token")
 	// ErrWorkspaceNotOffered means the named workspace is not in the token dialog.
 	ErrWorkspaceNotOffered = errors.New("the workspace is not offered for a configuration token")
+	// ErrAppTokenExists means the app already has an app-level token with
+	// the requested name.
+	ErrAppTokenExists = errors.New("the app already has an app-level token with this name")
+	// ErrScopeNotOffered means the token dialog's scope picker does not
+	// offer the requested scope.
+	ErrScopeNotOffered = errors.New("the scope is not offered for an app-level token")
 	// ErrPendingApproval means the install was submitted as a request that a
 	// workspace admin must approve.
 	ErrPendingApproval = errors.New("the install was requested and awaits a workspace admin's approval")
