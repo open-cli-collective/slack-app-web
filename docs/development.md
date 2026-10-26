@@ -67,8 +67,9 @@ git config core.hooksPath scripts/hooks          # reject AI-tool mentions in co
   opens a dialog with a token name field, an **Add Scope** picker and
   **Generate**. The token (`xapp-...`) then shows in a dialog closed with
   **Done**. `app-tokens create` refuses a name the section already lists.
-  These selectors were written without a live page to check against; the
-  fixture `testdata/app-level-tokens-section.txt` is invented.
+  The flow was confirmed against the live page on 2026-10-26 (a token with
+  `connections:write` generated and delivered); the fixture
+  `testdata/app-level-tokens-section.txt` is invented.
 
 ## Release
 

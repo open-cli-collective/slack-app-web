@@ -123,6 +123,12 @@ func firstMatch(pattern *regexp.Regexp, candidates []string) string {
 // ValidAppID reports whether id looks like a Slack app id.
 func ValidAppID(id string) bool { return appIDPattern.MatchString(id) }
 
+var scopePattern = regexp.MustCompile(`^[a-z_]+:[a-z_.]+$`)
+
+// ValidScope reports whether s has the shape of a Slack OAuth scope
+// (resource:action, as in connections:write or search:read.public).
+func ValidScope(s string) bool { return scopePattern.MatchString(s) }
+
 // clipboardHook replaces the page's clipboard writes with a capture into
 // window.__slawCopied, so a Copy button hands its value to the CLI without
 // touching the system clipboard.

@@ -23,6 +23,8 @@ func Classify(err error) (code int, hint string) {
 		return exitcode.NotFound, "run `slaw config-tokens create`"
 	case errors.Is(err, slackweb.ErrConfigTokenExists):
 		return exitcode.Usage, "`slaw config-tokens get` reads it; `slaw config-tokens create --replace` deletes it and generates a new one"
+	case errors.Is(err, slackweb.ErrAppTokenUnread):
+		return exitcode.Upstream, "revoke the token with this name on the app's Basic Information page, then run the command again"
 	case errors.Is(err, slackweb.ErrAppTokenExists):
 		return exitcode.Usage, "pass another --name, or revoke the existing token on the app's Basic Information page"
 	case errors.Is(err, slackweb.ErrScopeNotOffered):

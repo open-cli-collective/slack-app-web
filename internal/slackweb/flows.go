@@ -472,7 +472,7 @@ func (s *Session) CreateAppToken(appID, name string, scopes []string) (string, e
 	}
 	token, err := s.readAppToken()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%q: %w: %w", name, ErrAppTokenUnread, err)
 	}
 	done := s.page.GetByRole("dialog").GetByRole("button", playwright.LocatorGetByRoleOptions{Name: doneButton})
 	if s.visible(done, 5000) {

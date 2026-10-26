@@ -2,16 +2,15 @@
 package apptokens
 
 import (
-	"regexp"
+	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/open-cli-collective/slack-app-web/internal/cmd/cmdutil"
 	"github.com/open-cli-collective/slack-app-web/internal/secretout"
+	"github.com/open-cli-collective/slack-app-web/internal/slackweb"
 )
-
-var scopePattern = regexp.MustCompile(`^[a-z_]+:[a-z_]+$`)
 
 // NewCmd returns the app-tokens command group.
 func NewCmd(opts *cmdutil.Options) *cobra.Command {
@@ -55,13 +54,8 @@ The token is never written to slaw's own output.`,
 			if name == "" {
 				return cmdutil.Usage("--name is required")
 			}
-			if len(scopes) == 0 {
-				return cmdutil.Usage("pass at least one --scope, such as connections:write")
-			}
-			for _, s := range scopes {
-				if !scopePattern.MatchString(s) {
-					return cmdutil.Usage("%q is not a Slack scope (resource:action, as in connections:write)", s)
-				}
+			if err := cmdutil.Scopes(scopes); err != nil {
+				return err
 			}
 			if err := cmdutil.CheckSink(sink); err != nil {
 				return err
@@ -71,7 +65,10 @@ The token is never written to slaw's own output.`,
 				if err != nil {
 					return err
 				}
-				return opts.DeliverSecret(sink, []byte(token))
+				if err := opts.DeliverSecret(sink, []byte(token)); err != nil {
+					return fmt.Errorf("%q: %w: %w", name, slackweb.ErrAppTokenUnread, err)
+				}
+				return nil
 			})
 		},
 	}

@@ -121,3 +121,20 @@ func TestValidAppID(t *testing.T) {
 		}
 	}
 }
+
+func TestValidScope(t *testing.T) {
+	for scope, want := range map[string]bool{
+		"connections:write":   true,
+		"authorizations:read": true,
+		"search:read.public":  true,
+		"connections":         false,
+		"Connections:write":   false,
+		"connections:write ":  false,
+		":write":              false,
+		"":                    false,
+	} {
+		if got := ValidScope(scope); got != want {
+			t.Errorf("ValidScope(%q) = %v", scope, got)
+		}
+	}
+}
