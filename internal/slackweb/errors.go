@@ -30,6 +30,8 @@ var (
 	// never reached its destination. Slack shows the value only once, so
 	// the token exists and is lost; it has to be revoked.
 	ErrAppTokenUnread = errors.New("the app-level token was generated but not delivered")
+	// ErrNoAppToken means the app lists no app-level token with the name.
+	ErrNoAppToken = errors.New("the app has no app-level token with this name")
 	// ErrScopeNotOffered means the token dialog's scope picker does not
 	// offer the requested scope.
 	ErrScopeNotOffered = errors.New("the scope is not offered for an app-level token")

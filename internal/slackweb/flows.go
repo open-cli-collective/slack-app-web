@@ -464,6 +464,8 @@ var (
 	tokenNameField   = regexp.MustCompile(`(?i)token name`)
 	generateButton   = regexp.MustCompile(`(?i)^generate$`)
 	doneButton       = regexp.MustCompile(`(?i)^(done|close)$`)
+	revokeAppToken   = regexp.MustCompile(`(?i)^revoke token$`)
+	confirmRevoke    = regexp.MustCompile(`(?i)^yes, i.m sure$`)
 )
 
 // CreateAppToken generates an app-level token named name with scopes on
@@ -471,22 +473,15 @@ var (
 // value in the dialog that follows Generate; a name the app already lists
 // is an ErrAppTokenExists, checked before anything is created.
 func (s *Session) CreateAppToken(appID, name string, scopes []string) (string, error) {
-	if err := s.requireSignedIn(); err != nil {
-		return "", err
-	}
-	if err := s.goto_(appsURL + "/" + appID + "/general"); err != nil {
-		return "", err
-	}
-	open := s.page.GetByRole("button", playwright.PageGetByRoleOptions{Name: generateAppToken}).
-		Or(s.page.GetByRole("link", playwright.PageGetByRoleOptions{Name: generateAppToken}))
-	if !s.visible(open, s.timeout) {
-		return "", fmt.Errorf("%s: %w", appID, ErrAppNotFound)
-	}
-	section, err := s.appTokensSection(open)
+	open, section, err := s.appTokens(appID)
 	if err != nil {
 		return "", err
 	}
-	if tokenNameListed(section, name) {
+	text, err := section.InnerText()
+	if err != nil {
+		return "", err
+	}
+	if tokenNameListed(text, name) {
 		return "", fmt.Errorf("%q: %w", name, ErrAppTokenExists)
 	}
 	if err := open.First().Click(); err != nil {
@@ -530,22 +525,82 @@ func (s *Session) CreateAppToken(appID, name string, scopes []string) (string, e
 	return token, nil
 }
 
-// appTokensSection returns the text of the smallest element holding both
-// the App-Level Tokens heading and the button that opens the dialog, which
-// is where the page lists the app's existing tokens by name. The text holds
+// RevokeAppToken revokes appID's app-level token named name on the Basic
+// Information page. The token's name opens its details, where Revoke asks
+// for confirmation in an alert dialog. Revoking needs only the name, so it
+// also clears a token whose value was lost. ErrNoAppToken when the app lists
+// no token with the name.
+func (s *Session) RevokeAppToken(appID, name string) error {
+	_, section, err := s.appTokens(appID)
+	if err != nil {
+		return err
+	}
+	// Not-found is decided by the same exact, section-scoped match that is
+	// clicked, so a name that differs only in case is reported as absent.
+	entry := section.GetByRole("button", playwright.LocatorGetByRoleOptions{Name: name, Exact: playwright.Bool(true)})
+	if n, err := entry.Count(); err != nil {
+		return err
+	} else if n == 0 {
+		return fmt.Errorf("%q: %w", name, ErrNoAppToken)
+	} else if n > 1 {
+		return upstream("expected one token named %q, found %d", name, n)
+	}
+	if err := entry.Click(); err != nil {
+		return err
+	}
+	revoke := s.page.GetByRole("dialog").GetByRole("button", playwright.LocatorGetByRoleOptions{Name: revokeAppToken})
+	if !s.visible(revoke, s.timeout) {
+		return upstream("the token's details have no Revoke button")
+	}
+	if err := revoke.First().Click(); err != nil {
+		return err
+	}
+	confirm := s.page.GetByRole("alertdialog").GetByRole("button", playwright.LocatorGetByRoleOptions{Name: confirmRevoke})
+	if !s.visible(confirm, s.timeout) {
+		return upstream("no revoke confirmation appeared")
+	}
+	if n, err := confirm.Count(); err != nil {
+		return err
+	} else if n != 1 {
+		return upstream("expected one revoke confirmation button, found %d", n)
+	}
+	if err := confirm.Click(); err != nil {
+		return err
+	}
+	if err := entry.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateDetached, Timeout: &s.timeout}); err != nil {
+		return upstream("the token %q is still listed after revoking it", name)
+	}
+	return nil
+}
+
+// appTokens loads appID's Basic Information page and returns the control
+// that opens the Generate Token and Scopes dialog and the App-Level Tokens
+// section: the smallest element holding both the section's heading and that
+// control, where the page lists the app's tokens by name. Its text holds
 // names and scopes, never token values.
-func (s *Session) appTokensSection(open playwright.Locator) (string, error) {
+func (s *Session) appTokens(appID string) (open, section playwright.Locator, err error) {
+	if err := s.requireSignedIn(); err != nil {
+		return nil, nil, err
+	}
+	if err := s.goto_(appsURL + "/" + appID + "/general"); err != nil {
+		return nil, nil, err
+	}
+	open = s.page.GetByRole("button", playwright.PageGetByRoleOptions{Name: generateAppToken}).
+		Or(s.page.GetByRole("link", playwright.PageGetByRoleOptions{Name: generateAppToken}))
+	if !s.visible(open, s.timeout) {
+		return nil, nil, fmt.Errorf("%s: %w", appID, ErrAppNotFound)
+	}
 	heading := s.page.GetByText(appTokensHeading)
 	if !s.visible(heading, s.timeout) {
-		return "", upstream("the Basic Information page has no App-Level Tokens section")
+		return nil, nil, upstream("the Basic Information page has no App-Level Tokens section")
 	}
 	// Every element that holds both is an ancestor of both, so in document
 	// order the last one is the innermost.
-	section := s.page.Locator("div, section").
+	section = s.page.Locator("div, section").
 		Filter(playwright.LocatorFilterOptions{Has: heading}).
 		Filter(playwright.LocatorFilterOptions{Has: open}).
 		Last()
-	return section.InnerText()
+	return open, section, nil
 }
 
 // addAppTokenScope opens the Add Scope picker in the token dialog, picks

@@ -1,4 +1,4 @@
-// Package apptokens implements `slaw app-tokens create`.
+// Package apptokens implements `slaw app-tokens create` and `revoke`.
 package apptokens
 
 import (
@@ -16,11 +16,11 @@ import (
 func NewCmd(opts *cmdutil.Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "app-tokens",
-		Short: "Generate app-level tokens",
+		Short: "Generate and revoke app-level tokens",
 		Long: `An app-level token (xapp-...) acts for an app across every workspace it is
 installed in. Socket Mode needs one with the connections:write scope.`,
 	}
-	cmd.AddCommand(newCreateCmd(opts))
+	cmd.AddCommand(newCreateCmd(opts), newRevokeCmd(opts))
 	return cmd
 }
 
@@ -34,7 +34,7 @@ func newCreateCmd(opts *cmdutil.Options) *cobra.Command {
 		Long: `Generates an app-level token with the given name and scopes on the app's
 Basic Information page. Slack shows a new token's value once, so an app that
 already lists a token with the name is refused rather than given a second
-one; revoke it on that page or pick another name.
+one; revoke it with 'slaw app-tokens revoke' or pick another name.
 
 The token is delivered, with no trailing newline, to exactly one destination:
 
@@ -76,4 +76,36 @@ The token is never written to slaw's own output.`,
 	create.Flags().StringArrayVarP(&scopes, "scope", "s", nil, "Scope to grant; repeat for several (at least one, such as connections:write)")
 	cmdutil.AddSinkFlags(create, &sink)
 	return create
+}
+
+func newRevokeCmd(opts *cmdutil.Options) *cobra.Command {
+	var name string
+	revoke := &cobra.Command{
+		Use:   "revoke <app-id>",
+		Short: "Revoke an app-level token by name",
+		Long: `Revokes the app's app-level token with the given name on its Basic
+Information page. Every copy of the token stops working at once. The token's
+value is not needed, so this also clears a token whose value was lost.`,
+		Example: `  slaw app-tokens revoke A0123456789 --name socket-mode`,
+		Args:    cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			appID, err := cmdutil.AppID(args[0])
+			if err != nil {
+				return err
+			}
+			name = strings.TrimSpace(name)
+			if name == "" {
+				return cmdutil.Usage("--name is required")
+			}
+			return opts.WithBrowser(false, func(b cmdutil.Browser) error {
+				if err := b.RevokeAppToken(appID, name); err != nil {
+					return err
+				}
+				fmt.Fprintf(opts.Stdout, "Revoked the app-level token %q of %s\n", name, appID)
+				return nil
+			})
+		},
+	}
+	revoke.Flags().StringVarP(&name, "name", "n", "", "Name of the token to revoke (required)")
+	return revoke
 }
