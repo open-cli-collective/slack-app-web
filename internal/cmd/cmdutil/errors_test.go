@@ -24,6 +24,7 @@ func TestClassify(t *testing.T) {
 		{slackweb.ErrConfigTokenExists, exitcode.Usage, true},
 		{fmt.Errorf("%q: %w", "socket-mode", slackweb.ErrAppTokenExists), exitcode.Usage, true},
 		{fmt.Errorf("%q: %w: %w", "socket-mode", slackweb.ErrAppTokenUnread, errors.New("timeout")), exitcode.Upstream, true},
+		{fmt.Errorf("%q: %w: %w", "socket-mode", slackweb.ErrAppTokenUnread, exitcode.New(exitcode.Usage, errors.New("file exists"))), exitcode.Usage, true},
 		{slackweb.ErrScopeNotOffered, exitcode.Usage, false},
 		{slackweb.ErrPendingApproval, exitcode.Generic, false},
 		{CheckSink(secretout.Sink{}), exitcode.Usage, false},

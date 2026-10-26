@@ -48,7 +48,10 @@ slaw app-tokens create A0123456789 --name socket-mode --scope connections:write 
 Mode needs `connections:write`). Slack shows an app-level token's value only
 when it is generated, so `create` refuses a name the app already lists
 instead of making a second token under it; revoke the old one on the app's
-Basic Information page or choose another name.
+Basic Information page or choose another name. If the token is generated but
+cannot be read or delivered, the command fails with a hint to revoke it: the
+token exists and its value is lost, so a rerun under the same name is refused
+until it is revoked. A destination that failed keeps its usual exit code.
 
 `config-tokens create` and `get` deliver one JSON object with the field names
 of Slack's `tooling.tokens.rotate`:

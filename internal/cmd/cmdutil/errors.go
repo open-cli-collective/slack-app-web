@@ -24,7 +24,14 @@ func Classify(err error) (code int, hint string) {
 	case errors.Is(err, slackweb.ErrConfigTokenExists):
 		return exitcode.Usage, "`slaw config-tokens get` reads it; `slaw config-tokens create --replace` deletes it and generates a new one"
 	case errors.Is(err, slackweb.ErrAppTokenUnread):
-		return exitcode.Upstream, "revoke the token with this name on the app's Basic Information page, then run the command again"
+		// A destination that failed keeps its own code; a token Slack never
+		// showed is an upstream failure.
+		code := exitcode.Upstream
+		var coded *exitcode.Error
+		if errors.As(err, &coded) {
+			code = coded.Code
+		}
+		return code, "revoke the token with this name on the app's Basic Information page, then run the command again"
 	case errors.Is(err, slackweb.ErrAppTokenExists):
 		return exitcode.Usage, "pass another --name, or revoke the existing token on the app's Basic Information page"
 	case errors.Is(err, slackweb.ErrScopeNotOffered):
