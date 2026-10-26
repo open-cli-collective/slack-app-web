@@ -2,8 +2,10 @@ package slackweb
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -119,6 +121,20 @@ func TestValidAppID(t *testing.T) {
 		if got := ValidAppID(id); got != want {
 			t.Errorf("ValidAppID(%q) = %v", id, got)
 		}
+	}
+}
+
+func TestExplainAddsTheGuardFailure(t *testing.T) {
+	s := &Session{}
+	closed := errors.New("target closed")
+	if got := s.explain(closed); got != closed {
+		t.Fatalf("no guard failure: got %v", got)
+	}
+	s.noteGuardErr(errors.New("WebAuthn.enable failed"))
+	s.noteGuardErr(errors.New("a later failure"))
+	got := s.explain(closed)
+	if !errors.Is(got, closed) || !strings.Contains(got.Error(), "WebAuthn.enable failed") || strings.Contains(got.Error(), "later") {
+		t.Fatalf("got %v", got)
 	}
 }
 
