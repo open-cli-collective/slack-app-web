@@ -89,6 +89,9 @@ func Open(opts Options) (*Session, error) {
 		_ = pw.Stop()
 		return nil, err
 	}
+	// Sign-in can move to another page (a popup for an identity provider),
+	// so every page gets the authenticator, not only the first.
+	ctx.OnPage(func(p playwright.Page) { _ = useVirtualAuthenticator(ctx, p) })
 	page := firstPage(ctx)
 	if page == nil {
 		if page, err = ctx.NewPage(); err != nil {
@@ -96,12 +99,46 @@ func Open(opts Options) (*Session, error) {
 			_ = pw.Stop()
 			return nil, err
 		}
+	} else if err := useVirtualAuthenticator(ctx, page); err != nil {
+		_ = ctx.Close()
+		_ = pw.Stop()
+		return nil, err
 	}
 	timeout := opts.Timeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
 	return &Session{pw: pw, ctx: ctx, page: page, timeout: float64(timeout.Milliseconds())}, nil
+}
+
+// useVirtualAuthenticator routes the page's WebAuthn requests to an empty
+// virtual authenticator. A passkey challenge (Google's, when the Slack
+// workspace signs in with Google) otherwise reaches for the platform's
+// Bluetooth (hybrid) transport as soon as it loads, and macOS kills Chrome
+// for Testing for it: the bundle declares no Bluetooth usage, so the
+// privacy system terminates the process. With no credential to offer, the
+// challenge fails fast and the provider shows its other sign-in methods.
+func useVirtualAuthenticator(ctx playwright.BrowserContext, page playwright.Page) error {
+	cdp, err := ctx.NewCDPSession(page)
+	if err != nil {
+		return fmt.Errorf("open DevTools session: %w", err)
+	}
+	if _, err := cdp.Send("WebAuthn.enable", map[string]any{"enableUI": false}); err != nil {
+		return fmt.Errorf("enable virtual WebAuthn: %w", err)
+	}
+	if _, err := cdp.Send("WebAuthn.addVirtualAuthenticator", map[string]any{
+		"options": map[string]any{
+			"protocol":                    "ctap2",
+			"transport":                   "internal",
+			"hasResidentKey":              true,
+			"hasUserVerification":         true,
+			"isUserVerified":              false,
+			"automaticPresenceSimulation": false,
+		},
+	}); err != nil {
+		return fmt.Errorf("add virtual authenticator: %w", err)
+	}
+	return nil
 }
 
 func firstPage(ctx playwright.BrowserContext) playwright.Page {
