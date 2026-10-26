@@ -473,22 +473,15 @@ var (
 // value in the dialog that follows Generate; a name the app already lists
 // is an ErrAppTokenExists, checked before anything is created.
 func (s *Session) CreateAppToken(appID, name string, scopes []string) (string, error) {
-	if err := s.requireSignedIn(); err != nil {
-		return "", err
-	}
-	if err := s.goto_(appsURL + "/" + appID + "/general"); err != nil {
-		return "", err
-	}
-	open := s.page.GetByRole("button", playwright.PageGetByRoleOptions{Name: generateAppToken}).
-		Or(s.page.GetByRole("link", playwright.PageGetByRoleOptions{Name: generateAppToken}))
-	if !s.visible(open, s.timeout) {
-		return "", fmt.Errorf("%s: %w", appID, ErrAppNotFound)
-	}
-	section, err := s.appTokensSection(open)
+	open, section, err := s.appTokens(appID)
 	if err != nil {
 		return "", err
 	}
-	if tokenNameListed(section, name) {
+	text, err := section.InnerText()
+	if err != nil {
+		return "", err
+	}
+	if tokenNameListed(text, name) {
 		return "", fmt.Errorf("%q: %w", name, ErrAppTokenExists)
 	}
 	if err := open.First().Click(); err != nil {
@@ -538,29 +531,19 @@ func (s *Session) CreateAppToken(appID, name string, scopes []string) (string, e
 // also clears a token whose value was lost. ErrNoAppToken when the app lists
 // no token with the name.
 func (s *Session) RevokeAppToken(appID, name string) error {
-	if err := s.requireSignedIn(); err != nil {
-		return err
-	}
-	if err := s.goto_(appsURL + "/" + appID + "/general"); err != nil {
-		return err
-	}
-	open := s.page.GetByRole("button", playwright.PageGetByRoleOptions{Name: generateAppToken}).
-		Or(s.page.GetByRole("link", playwright.PageGetByRoleOptions{Name: generateAppToken}))
-	if !s.visible(open, s.timeout) {
-		return fmt.Errorf("%s: %w", appID, ErrAppNotFound)
-	}
-	section, err := s.appTokensSection(open)
+	_, section, err := s.appTokens(appID)
 	if err != nil {
 		return err
 	}
-	if !tokenNameListed(section, name) {
-		return fmt.Errorf("%q: %w", name, ErrNoAppToken)
-	}
-	entry := s.page.GetByRole("button", playwright.PageGetByRoleOptions{Name: name, Exact: playwright.Bool(true)})
+	// Not-found is decided by the same exact, section-scoped match that is
+	// clicked, so a name that differs only in case is reported as absent.
+	entry := section.GetByRole("button", playwright.LocatorGetByRoleOptions{Name: name, Exact: playwright.Bool(true)})
 	if n, err := entry.Count(); err != nil {
 		return err
-	} else if n != 1 {
-		return upstream("expected one token named %q to open, found %d", name, n)
+	} else if n == 0 {
+		return fmt.Errorf("%q: %w", name, ErrNoAppToken)
+	} else if n > 1 {
+		return upstream("expected one token named %q, found %d", name, n)
 	}
 	if err := entry.Click(); err != nil {
 		return err
@@ -590,22 +573,34 @@ func (s *Session) RevokeAppToken(appID, name string) error {
 	return nil
 }
 
-// appTokensSection returns the text of the smallest element holding both
-// the App-Level Tokens heading and the button that opens the dialog, which
-// is where the page lists the app's existing tokens by name. The text holds
+// appTokens loads appID's Basic Information page and returns the control
+// that opens the Generate Token and Scopes dialog and the App-Level Tokens
+// section: the smallest element holding both the section's heading and that
+// control, where the page lists the app's tokens by name. Its text holds
 // names and scopes, never token values.
-func (s *Session) appTokensSection(open playwright.Locator) (string, error) {
+func (s *Session) appTokens(appID string) (open, section playwright.Locator, err error) {
+	if err := s.requireSignedIn(); err != nil {
+		return nil, nil, err
+	}
+	if err := s.goto_(appsURL + "/" + appID + "/general"); err != nil {
+		return nil, nil, err
+	}
+	open = s.page.GetByRole("button", playwright.PageGetByRoleOptions{Name: generateAppToken}).
+		Or(s.page.GetByRole("link", playwright.PageGetByRoleOptions{Name: generateAppToken}))
+	if !s.visible(open, s.timeout) {
+		return nil, nil, fmt.Errorf("%s: %w", appID, ErrAppNotFound)
+	}
 	heading := s.page.GetByText(appTokensHeading)
 	if !s.visible(heading, s.timeout) {
-		return "", upstream("the Basic Information page has no App-Level Tokens section")
+		return nil, nil, upstream("the Basic Information page has no App-Level Tokens section")
 	}
 	// Every element that holds both is an ancestor of both, so in document
 	// order the last one is the innermost.
-	section := s.page.Locator("div, section").
+	section = s.page.Locator("div, section").
 		Filter(playwright.LocatorFilterOptions{Has: heading}).
 		Filter(playwright.LocatorFilterOptions{Has: open}).
 		Last()
-	return section.InnerText()
+	return open, section, nil
 }
 
 // addAppTokenScope opens the Add Scope picker in the token dialog, picks
