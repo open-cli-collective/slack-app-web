@@ -18,13 +18,13 @@ func (s *Session) Login(workspace string, wait time.Duration) error {
 		start = "https://" + workspace + ".slack.com/"
 	}
 	if err := s.goto_(start); err != nil {
-		return err
+		return s.explain(err)
 	}
 	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		cookies, err := s.ctx.Cookies("https://slack.com", "https://api.slack.com")
 		if err != nil {
-			return err
+			return s.explain(err)
 		}
 		for _, c := range cookies {
 			// "d" is Slack's session cookie.

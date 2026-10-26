@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mxschmitt/playwright-go"
@@ -35,6 +36,11 @@ type Session struct {
 	ctx     playwright.BrowserContext
 	page    playwright.Page
 	timeout float64
+
+	mu sync.Mutex
+	// guardErr is the first failure to give a page its virtual
+	// authenticator, kept to explain a browser that closes later.
+	guardErr error
 }
 
 // DefaultProfileDir is the profile directory for a named profile under the
@@ -89,26 +95,33 @@ func Open(opts Options) (*Session, error) {
 		_ = pw.Stop()
 		return nil, err
 	}
-	// Sign-in can move to another page (a popup for an identity provider),
-	// so every page gets the authenticator, not only the first.
-	ctx.OnPage(func(p playwright.Page) { _ = useVirtualAuthenticator(ctx, p) })
-	page := firstPage(ctx)
-	if page == nil {
-		if page, err = ctx.NewPage(); err != nil {
-			_ = ctx.Close()
-			_ = pw.Stop()
-			return nil, err
-		}
-	} else if err := useVirtualAuthenticator(ctx, page); err != nil {
-		_ = ctx.Close()
-		_ = pw.Stop()
-		return nil, err
-	}
 	timeout := opts.Timeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	return &Session{pw: pw, ctx: ctx, page: page, timeout: float64(timeout.Milliseconds())}, nil
+	s := &Session{pw: pw, ctx: ctx, timeout: float64(timeout.Milliseconds())}
+	// Sign-in can move to another page (a popup for an identity provider),
+	// so every new page gets the authenticator, including the one NewPage
+	// opens below. A failure there does not stop the page: most pages never
+	// meet a passkey challenge. It is kept so that a browser that closes
+	// later says why (see explain).
+	ctx.OnPage(func(p playwright.Page) {
+		if err := useVirtualAuthenticator(ctx, p); err != nil {
+			s.noteGuardErr(err)
+		}
+	})
+	if s.page = firstPage(ctx); s.page == nil {
+		if s.page, err = ctx.NewPage(); err != nil {
+			_ = ctx.Close()
+			_ = pw.Stop()
+			return nil, err
+		}
+	} else if err := useVirtualAuthenticator(ctx, s.page); err != nil {
+		_ = ctx.Close()
+		_ = pw.Stop()
+		return nil, err
+	}
+	return s, nil
 }
 
 // useVirtualAuthenticator routes the page's WebAuthn requests to an empty
@@ -139,6 +152,26 @@ func useVirtualAuthenticator(ctx playwright.BrowserContext, page playwright.Page
 		return fmt.Errorf("add virtual authenticator: %w", err)
 	}
 	return nil
+}
+
+func (s *Session) noteGuardErr(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.guardErr == nil {
+		s.guardErr = err
+	}
+}
+
+// explain adds a recorded authenticator failure to err: without the
+// authenticator, macOS kills the browser at a passkey challenge, and the
+// error that surfaces only says the browser closed.
+func (s *Session) explain(err error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err == nil || s.guardErr == nil {
+		return err
+	}
+	return fmt.Errorf("%w (a page opened without the passkey guard: %w)", err, s.guardErr)
 }
 
 func firstPage(ctx playwright.BrowserContext) playwright.Page {
