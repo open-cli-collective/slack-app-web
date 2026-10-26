@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/open-cli-collective/slack-app-web/internal/cmd/apps"
+	"github.com/open-cli-collective/slack-app-web/internal/cmd/apptokens"
 	"github.com/open-cli-collective/slack-app-web/internal/cmd/bottokens"
 	"github.com/open-cli-collective/slack-app-web/internal/cmd/browsercmd"
 	"github.com/open-cli-collective/slack-app-web/internal/cmd/cmdutil"
@@ -26,11 +27,13 @@ func NewCmd(opts *cmdutil.Options) *cobra.Command {
 		Short: "Do the Slack app steps that have no API, in a headless browser",
 		Long: `slaw drives api.slack.com in a persistent, headless Chromium profile for the
 Slack app steps the Web API does not offer: generating an app configuration
-token, installing or reinstalling an app, reading its bot token, and
-uploading its icon. Manage manifests through the apps.manifest.* API instead.
+token, installing or reinstalling an app, reading its bot token, generating
+an app-level token, and uploading its icon. Manage manifests through the
+apps.manifest.* API instead.
 
-Sign in once with 'slaw login'. Tokens are written only to a pipe or a file,
-never to a terminal, and slaw never logs or screenshots a page.`,
+Sign in once with 'slaw login'. Tokens go only to the file or command named
+with --to-file or --to-command, never to slaw's own output, and slaw never
+logs or screenshots a page.`,
 		Version:       fmt.Sprintf("%s (commit %s, built %s)", version.Version, version.Commit, version.Date),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -44,6 +47,7 @@ never to a terminal, and slaw never logs or screenshots a page.`,
 		apps.NewCmd(opts),
 		configtokens.NewCmd(opts),
 		bottokens.NewCmd(opts),
+		apptokens.NewCmd(opts),
 		icons.NewCmd(opts),
 		browsercmd.NewCmd(opts),
 		&cobra.Command{

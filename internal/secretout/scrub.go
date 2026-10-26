@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-var tokenPattern = regexp.MustCompile(`xox[a-z]?[.-][A-Za-z0-9.-]+`)
+var tokenPattern = regexp.MustCompile(`xox[a-z]?[.-][A-Za-z0-9.-]+|xapp-[A-Za-z0-9-]+`)
 
 // ErrorText renders err for stderr with anything shaped like a Slack token
 // redacted: browser errors carry call logs that quote page elements, which

@@ -43,7 +43,7 @@ check: tidy fmt lint test build
 smoke: build
 	./bin/$(BINARY) version
 	./bin/$(BINARY) --help > /dev/null
-	for grp in apps bot-tokens browser config-tokens icons login me; do \
+	for grp in app-tokens apps bot-tokens browser config-tokens icons login me; do \
 		./bin/$(BINARY) $$grp --help > /dev/null 2>&1 || exit 1; \
 	done
 

@@ -100,8 +100,8 @@ func TestToCommandFailureNamesTheStatusNotTheSecret(t *testing.T) {
 }
 
 func TestErrorTextRedactsTokensAndCallLogs(t *testing.T) {
-	err := errors.New("timeout waiting for <input value=\"xoxb-1-2-abc\"> and xoxe.xoxp-1-Mi0\nCall log:\n  xoxe-1-My0t")
-	if got, want := ErrorText(err), "timeout waiting for <input value=\"[redacted]\"> and [redacted]"; got != want {
+	err := errors.New("timeout waiting for <input value=\"xoxb-1-2-abc\"> and xoxe.xoxp-1-Mi0 near xapp-1-A0EXAMPLE01-1-abc\nCall log:\n  xoxe-1-My0t")
+	if got, want := ErrorText(err), "timeout waiting for <input value=\"[redacted]\"> and [redacted] near [redacted]"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }

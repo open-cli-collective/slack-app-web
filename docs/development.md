@@ -39,8 +39,9 @@ git config core.hooksPath scripts/hooks          # reject AI-tool mentions in co
   through stdout or stderr, because a terminal check cannot tell an agent
   transcript or a CI log from a pipe. Do not print page text, take screenshots, or wrap a
   browser error without `secretout.ErrorText` in the path to stderr. Token
-  pages (OAuth & Permissions, install, Your Apps' token table) are never
-  captured in any form.
+  pages (OAuth & Permissions, install, Your Apps' token table, the app-level
+  token dialog) are never captured in any form. A new token prefix needs a
+  matching pattern in `secretout/scrub.go`.
 - **Read state from the page, then act.** Wait for an element that proves the
   page rendered (the token label or the install button) before deciding what
   to click; the settings pages render after `domcontentloaded`.
@@ -60,6 +61,15 @@ git config core.hooksPath scripts/hooks          # reject AI-tool mentions in co
   confirms by the avatar URL changing.
 - The install page shows "Bot User OAuth Token" once installed and an
   "Install to <workspace>" or "Reinstall to <workspace>" button.
+
+- Basic Information has an **App-Level Tokens** section listing each token
+  by name with its scopes, and a **Generate Token and Scopes** button that
+  opens a dialog with a token name field, an **Add Scope** picker and
+  **Generate**. The token (`xapp-...`) then shows in a dialog closed with
+  **Done**. `app-tokens create` refuses a name the section already lists.
+  The flow was confirmed against the live page on 2026-10-26 (a token with
+  `connections:write` generated and delivered); the fixture
+  `testdata/app-level-tokens-section.txt` is invented.
 
 ## Release
 
